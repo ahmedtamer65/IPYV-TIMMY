@@ -1,5 +1,11 @@
-node_modules
-logs
-media
-*.log
+node_modules/
+iptv.db
+dist/
+*.exe
 .env
+.claude/
+hls/
+streams/
+logs/
+restreams.json
+.reset_db
