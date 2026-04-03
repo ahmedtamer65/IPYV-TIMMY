@@ -91,9 +91,64 @@ router.delete('/users/:id', (req, res) => {
   res.json({ message: 'User deleted' });
 });
 
+// ===== CATEGORIES =====
+// Get all categories with channel counts
+router.get('/categories', (req, res) => {
+  const cats = getAll(`
+    SELECT category, COUNT(*) as channel_count,
+    SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as active_count
+    FROM channels GROUP BY category ORDER BY category
+  `);
+  res.json(cats);
+});
+
+// Add new category (creates a placeholder so it shows up even empty)
+router.post('/categories', (req, res) => {
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Category name required' });
+  // Check if category already exists
+  const existing = getOne('SELECT category FROM channels WHERE category = ? LIMIT 1', [name.trim()]);
+  if (existing) return res.status(400).json({ error: 'Category already exists' });
+  // Insert a hidden placeholder channel to "create" the category
+  run('INSERT INTO channels (name, category, stream_url, is_active, sort_order) VALUES (?, ?, ?, ?, ?)',
+    ['__category_placeholder__', name.trim(), '', 0, 99999]);
+  res.json({ message: 'Category created', category: name.trim() });
+});
+
+// Rename category — updates all channels in that category
+router.put('/categories/:oldName', (req, res) => {
+  const oldName = decodeURIComponent(req.params.oldName);
+  const { newName } = req.body;
+  if (!newName || !newName.trim()) return res.status(400).json({ error: 'New name required' });
+  const count = getOne('SELECT COUNT(*) as c FROM channels WHERE category = ?', [oldName]);
+  if (!count || count.c === 0) return res.status(404).json({ error: 'Category not found' });
+  run('UPDATE channels SET category = ? WHERE category = ?', [newName.trim(), oldName]);
+  // Also update movies & series with same category name
+  run('UPDATE movies SET category = ? WHERE category = ?', [newName.trim(), oldName]);
+  run('UPDATE series SET category = ? WHERE category = ?', [newName.trim(), oldName]);
+  res.json({ message: `Renamed "${oldName}" → "${newName.trim()}", ${count.c} channels updated` });
+});
+
+// Delete category — move channels to another category, NOT delete them
+router.delete('/categories/:name', (req, res) => {
+  const catName = decodeURIComponent(req.params.name);
+  const moveTo = req.query.moveTo || 'general';
+
+  const count = getOne('SELECT COUNT(*) as c FROM channels WHERE category = ?', [catName]);
+  if (!count || count.c === 0) return res.status(404).json({ error: 'Category not found or empty' });
+
+  // Move all channels to the target category
+  run('UPDATE channels SET category = ? WHERE category = ?', [moveTo, catName]);
+
+  // Remove any placeholder channels
+  run('DELETE FROM channels WHERE name = "__category_placeholder__" AND category = ?', [moveTo]);
+
+  res.json({ message: `Deleted "${catName}", ${count.c} channels moved to "${moveTo}"` });
+});
+
 // ===== CHANNELS =====
 router.get('/channels', (req, res) => {
-  res.json(getAll('SELECT * FROM channels ORDER BY sort_order ASC'));
+  res.json(getAll('SELECT * FROM channels WHERE name != "__category_placeholder__" ORDER BY sort_order ASC'));
 });
 
 router.post('/channels', (req, res) => {

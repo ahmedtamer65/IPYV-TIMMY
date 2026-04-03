@@ -13,12 +13,15 @@ function saveDb() {
   fs.writeFileSync(DB_PATH, Buffer.from(data));
 }
 
-setInterval(() => { if (db) saveDb(); }, 30000);
+// Auto-save every 10 seconds (was 30s — more frequent to prevent data loss)
+setInterval(() => { if (db) saveDb(); }, 10000);
 
 // Save on process exit to prevent data loss
 process.on('exit', () => { if (db) saveDb(); });
-process.on('SIGINT', () => { if (db) saveDb(); process.exit(0); });
-process.on('SIGTERM', () => { if (db) saveDb(); process.exit(0); });
+process.on('SIGINT', () => { console.log('\nSaving database...'); if (db) saveDb(); process.exit(0); });
+process.on('SIGTERM', () => { console.log('\nSaving database...'); if (db) saveDb(); process.exit(0); });
+process.on('uncaughtException', (err) => { console.error('Uncaught exception:', err); if (db) saveDb(); });
+process.on('unhandledRejection', (err) => { console.error('Unhandled rejection:', err); if (db) saveDb(); });
 
 async function init() {
   const SQL = await initSqlJs();

@@ -184,6 +184,7 @@
           <input type="text" class="search-box" placeholder="Search channels..." oninput="filterChannels(this.value)">
           <button class="btn btn-primary" id="btnAddChannel">+ Add Channel</button>
           <button class="btn" style="background:#0984e3" id="btnBulkImport">📋 Bulk Import</button>
+          <button class="btn" style="background:#e17055" id="btnManageCategories">📂 Manage Categories</button>
         </div>
       </div>
       <div class="filter-tabs" id="channelFilters"></div>
@@ -1356,6 +1357,7 @@ document.getElementById('btnLogout').addEventListener('click', () => logout());
 document.getElementById('btnAddUser').addEventListener('click', () => openUserModal());
 document.getElementById('btnAddChannel').addEventListener('click', () => openChannelModal());
 document.getElementById('btnBulkImport').addEventListener('click', () => openBulkImportModal());
+document.getElementById('btnManageCategories').addEventListener('click', () => openCategoriesModal());
 document.getElementById('btnAddMovie').addEventListener('click', () => openMovieModal());
 document.getElementById('btnUploadMedia').addEventListener('click', () => openUploadModal());
 document.getElementById('btnMediaLibrary').addEventListener('click', () => openMediaLibrary());
@@ -1447,6 +1449,118 @@ document.getElementById('modalOverlay').addEventListener('click', function(e) {
 });
 
 // ===== BULK IMPORT =====
+// ===== CATEGORY MANAGEMENT =====
+async function openCategoriesModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h2>📂 Manage Categories</h2>
+    <p style="color:#6a7a9a;margin-bottom:15px">Add, rename, or delete categories. Deleting a category moves its channels to another category.</p>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input id="newCatName" class="search-box" placeholder="New category name..." style="flex:1">
+      <button class="btn btn-primary" onclick="addCategory()">+ Add Category</button>
+    </div>
+
+    <div id="categoriesList" style="max-height:400px;overflow-y:auto">
+      <div style="text-align:center;color:#5a6a8a;padding:20px">Loading...</div>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:16px">
+      <button class="btn" data-action="closeModal">Close</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('show');
+  loadCategoriesList();
+}
+
+async function loadCategoriesList() {
+  try {
+    const cats = await api('/api/admin/categories');
+    const container = document.getElementById('categoriesList');
+    if (cats.length === 0) {
+      container.innerHTML = '<div style="text-align:center;color:#5a6a8a;padding:20px">No categories found</div>';
+      return;
+    }
+    container.innerHTML = cats.map(c => `
+      <div style="display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid #1e2844;flex-wrap:wrap" id="cat-row-${encodeURIComponent(c.category)}">
+        <div style="flex:1;min-width:150px">
+          <strong style="color:#00d4ff;font-size:15px">${c.category}</strong>
+          <div style="font-size:12px;color:#5a6a8a">${c.channel_count} channels (${c.active_count} active)</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-sm" style="background:#0984e3;font-size:11px" onclick="renameCategory('${c.category.replace(/'/g,"\\'")}')">Rename</button>
+          <button class="btn btn-danger btn-sm" style="font-size:11px" onclick="deleteCategory('${c.category.replace(/'/g,"\\'")}', ${c.channel_count})">Delete</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    document.getElementById('categoriesList').innerHTML = '<div style="color:#ff4757;padding:16px">Error loading categories</div>';
+  }
+}
+
+async function addCategory() {
+  const name = document.getElementById('newCatName').value.trim();
+  if (!name) return alert('Enter a category name');
+  try {
+    await api('/api/admin/categories', 'POST', { name });
+    document.getElementById('newCatName').value = '';
+    loadCategoriesList();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function renameCategory(oldName) {
+  const newName = prompt('New name for "' + oldName + '":', oldName);
+  if (!newName || newName.trim() === oldName) return;
+  try {
+    await api('/api/admin/categories/' + encodeURIComponent(oldName), 'PUT', { newName: newName.trim() });
+    loadCategoriesList();
+    loadChannels();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
+async function deleteCategory(catName, channelCount) {
+  // Get all categories for the "move to" dropdown
+  let cats;
+  try { cats = await api('/api/admin/categories'); } catch(e) { return alert('Error loading categories'); }
+  const otherCats = cats.filter(c => c.category !== catName);
+
+  if (otherCats.length === 0) {
+    return alert('Cannot delete the only category. Create another one first.');
+  }
+
+  // Build a small dialog
+  const moveOptions = otherCats.map(c => `<option value="${c.category}">${c.category} (${c.channel_count} channels)</option>`).join('');
+  const row = document.getElementById('cat-row-' + encodeURIComponent(catName));
+  if (row) {
+    row.innerHTML = `
+      <div style="width:100%;padding:8px 0">
+        <div style="color:#ffa500;margin-bottom:8px">Move ${channelCount} channels from "<strong>${catName}</strong>" to:</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="moveToCat" style="flex:1;background:#0a0e1a;color:#e0e0e0;border:1px solid #1e2844;border-radius:8px;padding:8px;font-size:13px">
+            ${moveOptions}
+          </select>
+          <button class="btn btn-danger btn-sm" onclick="confirmDeleteCategory('${catName.replace(/'/g,"\\'")}')">Confirm Delete</button>
+          <button class="btn btn-sm" onclick="loadCategoriesList()">Cancel</button>
+        </div>
+      </div>`;
+  }
+}
+
+async function confirmDeleteCategory(catName) {
+  const moveTo = document.getElementById('moveToCat').value;
+  if (!moveTo) return alert('Select a category');
+  try {
+    const result = await api('/api/admin/categories/' + encodeURIComponent(catName) + '?moveTo=' + encodeURIComponent(moveTo), 'DELETE');
+    alert(result.message);
+    loadCategoriesList();
+    loadChannels();
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+}
+
 function openBulkImportModal() {
   document.getElementById('modalContent').innerHTML = `
     <h2>📋 Bulk Import Channels</h2>

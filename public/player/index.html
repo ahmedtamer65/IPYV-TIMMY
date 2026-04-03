@@ -721,20 +721,52 @@ function playVideo(url, title, desc) {
   const isMp4 = url.includes('.mp4');
 
   if(isHLS && typeof Hls !== 'undefined' && Hls.isSupported()) {
-    // HLS via hls.js
-    const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+    // HLS via hls.js — optimized for no buffering/stuttering
+    const hls = new Hls({
+      enableWorker: true,
+      lowLatencyMode: false,           // disable low latency — prioritize smooth playback
+      maxBufferLength: 30,             // buffer up to 30 seconds
+      maxMaxBufferLength: 60,          // allow up to 60 seconds max
+      maxBufferSize: 60 * 1024 * 1024, // 60MB buffer
+      maxBufferHole: 0.5,
+      startLevel: -1,                  // auto quality
+      abrEwmaDefaultEstimate: 5000000, // assume 5Mbps initially
+      abrBandWidthFactor: 0.8,         // conservative bandwidth usage
+      abrBandWidthUpFactor: 0.5,
+      fragLoadingTimeOut: 20000,        // 20s timeout for fragment loading
+      fragLoadingMaxRetry: 6,           // retry 6 times
+      fragLoadingRetryDelay: 1000,
+      levelLoadingTimeOut: 15000,
+      manifestLoadingTimeOut: 15000,
+      manifestLoadingMaxRetry: 4,
+      levelLoadingMaxRetry: 4,
+      startFragPrefetch: true,          // prefetch next fragments
+      testBandwidth: true,
+      progressive: true,
+      backBufferLength: 30              // keep 30s of back buffer
+    });
     hls.loadSource(url);
     hls.attachMedia(video);
     hls.on(Hls.Events.MANIFEST_PARSED, ()=>video.play().catch(()=>{}));
     hls.on(Hls.Events.ERROR, (e, data) => {
       if(data.fatal) {
-        console.warn('HLS error, trying backup...', data.type);
-        hls.destroy();
-        window._hls = null;
-        if(!tryBackupUrl(title, desc)) {
-          document.getElementById('playerDesc').textContent = 'Stream failed - No backup available';
+        if(data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          console.warn('HLS network error, retrying...');
+          hls.startLoad();
+        } else {
+          console.warn('HLS fatal error, trying backup...', data.type);
+          hls.destroy();
+          window._hls = null;
+          if(!tryBackupUrl(title, desc)) {
+            document.getElementById('playerDesc').textContent = 'Stream failed - No backup available';
+          }
         }
       }
+    });
+    // Auto recover from buffer stalls
+    hls.on(Hls.Events.BUFFER_STALLED_ERROR, () => {
+      console.warn('HLS buffer stalled, recovering...');
+      hls.startLoad();
     });
     window._hls = hls;
   } else if(isHLS && video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -755,15 +787,17 @@ function playVideo(url, title, desc) {
     }, {
       enableWorker: false,
       enableStashBuffer: true,
-      stashInitialSize: 384 * 1024,  // 384KB initial buffer for smooth playback
+      stashInitialSize: 512 * 1024,       // 512KB initial buffer (bigger = less stuttering)
       lazyLoad: false,
       deferLoadAfterSourceOpen: false,
       liveBufferLatencyChasing: true,
-      liveBufferLatencyMaxLatency: 10,  // allow up to 10s buffer
-      liveBufferLatencyMinRemain: 3,    // keep at least 3s buffered
+      liveBufferLatencyMaxLatency: 15,    // allow up to 15s buffer
+      liveBufferLatencyMinRemain: 5,      // keep at least 5s buffered
       autoCleanupSourceBuffer: true,
-      autoCleanupMaxBackwardDuration: 30,
-      autoCleanupMinBackwardDuration: 15
+      autoCleanupMaxBackwardDuration: 60,
+      autoCleanupMinBackwardDuration: 30,
+      fixAudioTimestampGap: true,         // fix audio gaps
+      accurateSeek: true
     });
     player.attachMediaElement(video);
     player.load();
@@ -793,6 +827,26 @@ function playVideo(url, title, desc) {
     video.src = url;
     video.play().catch(()=>{});
   }
+
+  // Anti-stutter: detect stalls and auto-recover
+  let stallTimer = null;
+  video.addEventListener('waiting', () => {
+    if (stallTimer) clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      if (video.paused || video.readyState < 3) {
+        console.warn('Video stalled for too long, attempting recovery...');
+        if (video.buffered.length > 0) {
+          // Jump to the latest buffered position
+          const end = video.buffered.end(video.buffered.length - 1);
+          if (end - video.currentTime > 2) {
+            video.currentTime = end - 0.5;
+          }
+        }
+        video.play().catch(()=>{});
+      }
+    }, 5000);
+  });
+  video.addEventListener('playing', () => { if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; } });
 
   document.getElementById('playerTitle').textContent = title;
   document.getElementById('playerDesc').textContent = desc;
