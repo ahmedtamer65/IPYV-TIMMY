@@ -1,0 +1,433 @@
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const { run, getOne, getAll } = require('../db');
+const { authenticate, adminOnly } = require('../middleware/auth');
+
+// Media upload setup
+const BASE_DIR = process.pkg ? path.dirname(process.execPath) : path.join(__dirname, '..');
+const MEDIA_DIR = path.join(BASE_DIR, 'media');
+if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const subDir = file.mimetype.startsWith('video/') ? 'videos' : 'images';
+    const dir = path.join(MEDIA_DIR, subDir);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const name = file.originalname.replace(ext, '').replace(/[^a-zA-Z0-9_\-]/g, '_');
+    cb(null, Date.now() + '_' + name + ext);
+  }
+});
+const upload = multer({ storage, limits: { fileSize: 2 * 1024 * 1024 * 1024 } }); // 2GB max
+
+const router = express.Router();
+router.use(authenticate, adminOnly);
+
+// ===== STATS =====
+router.get('/stats', (req, res) => {
+  const c = (sql) => (getOne(sql, []) || {})['COUNT(*)'] || (getOne(sql, []) || {}).count || 0;
+  const totalUsers = (getOne('SELECT COUNT(*) as count FROM users WHERE role = "user"', []) || {}).count || 0;
+  const activeUsers = (getOne('SELECT COUNT(*) as count FROM users WHERE is_active = 1 AND role = "user"', []) || {}).count || 0;
+  const totalChannels = (getOne('SELECT COUNT(*) as count FROM channels', []) || {}).count || 0;
+  const totalMovies = (getOne('SELECT COUNT(*) as count FROM movies', []) || {}).count || 0;
+  const totalSeries = (getOne('SELECT COUNT(*) as count FROM series', []) || {}).count || 0;
+  const totalEpisodes = (getOne('SELECT COUNT(*) as count FROM episodes', []) || {}).count || 0;
+  const subscriptionStats = getAll('SELECT subscription, COUNT(*) as count FROM users WHERE role = "user" GROUP BY subscription') || [];
+  const recentUsers = getAll('SELECT id, username, subscription, is_active, created_at, last_login FROM users WHERE role = "user" ORDER BY id DESC LIMIT 10') || [];
+  res.json({ totalUsers, activeUsers, totalChannels, totalMovies, totalSeries, totalEpisodes, subscriptionStats, recentUsers });
+});
+
+// ===== USERS =====
+router.get('/users', (req, res) => {
+  res.json(getAll('SELECT id, username, role, subscription, expires_at, max_connections, is_active, created_at, last_login, notes FROM users ORDER BY id DESC'));
+});
+
+router.post('/users', (req, res) => {
+  try {
+    const { username, password, role, subscription, expires_at, max_connections, notes } = req.body;
+    if (!username) return res.status(400).json({ error: 'Username required' });
+    const existing = getOne('SELECT id FROM users WHERE username = ?', [username]);
+    if (existing) return res.status(400).json({ error: 'Username already exists' });
+    const hash = bcrypt.hashSync(password || '1234', 10);
+    const result = run('INSERT INTO users (username, password, role, subscription, expires_at, max_connections, notes) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [username, hash, role || 'user', subscription || 'trial', expires_at || null, max_connections || 1, notes || null]);
+    res.json({ id: result.lastInsertRowid, message: 'User created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/users/:id', (req, res) => {
+  try {
+    const { username, role, subscription, expires_at, is_active, max_connections, notes } = req.body;
+    const user = getOne('SELECT * FROM users WHERE id = ?', [req.params.id]);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    run('UPDATE users SET username=?, role=?, subscription=?, expires_at=?, is_active=?, max_connections=?, notes=? WHERE id=?', [
+      username ?? user.username, role ?? user.role, subscription ?? user.subscription,
+      expires_at ?? user.expires_at, is_active ?? user.is_active,
+      max_connections ?? user.max_connections, notes ?? user.notes, req.params.id
+    ]);
+    res.json({ message: 'User updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/users/:id/password', (req, res) => {
+  const { password } = req.body;
+  const hash = bcrypt.hashSync(password, 10);
+  run('UPDATE users SET password = ? WHERE id = ?', [hash, req.params.id]);
+  res.json({ message: 'Password updated' });
+});
+
+router.delete('/users/:id', (req, res) => {
+  run('DELETE FROM users WHERE id = ? AND role != "admin"', [req.params.id]);
+  res.json({ message: 'User deleted' });
+});
+
+// ===== CHANNELS =====
+router.get('/channels', (req, res) => {
+  res.json(getAll('SELECT * FROM channels ORDER BY sort_order ASC'));
+});
+
+router.post('/channels', (req, res) => {
+  try {
+    const { name, category, stream_url, backup_url, backup_url2, logo_url, sort_order } = req.body;
+    const result = run('INSERT INTO channels (name, category, stream_url, backup_url, backup_url2, logo_url, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [name, category || 'general', stream_url || '', backup_url || '', backup_url2 || '', logo_url || '', sort_order || 0]);
+    res.json({ id: result.lastInsertRowid, message: 'Channel created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/channels/:id', (req, res) => {
+  const { name, category, stream_url, backup_url, backup_url2, logo_url, is_active, sort_order } = req.body;
+  const ch = getOne('SELECT * FROM channels WHERE id = ?', [req.params.id]);
+  if (!ch) return res.status(404).json({ error: 'Channel not found' });
+  run('UPDATE channels SET name=?, category=?, stream_url=?, backup_url=?, backup_url2=?, logo_url=?, is_active=?, sort_order=? WHERE id=?', [
+    name ?? ch.name, category ?? ch.category, stream_url ?? ch.stream_url,
+    backup_url ?? ch.backup_url, backup_url2 ?? ch.backup_url2,
+    logo_url ?? ch.logo_url, is_active ?? ch.is_active, sort_order ?? ch.sort_order, req.params.id
+  ]);
+  res.json({ message: 'Channel updated' });
+});
+
+router.delete('/channels/:id', (req, res) => {
+  run('DELETE FROM channels WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Channel deleted' });
+});
+
+// ===== MOVIES =====
+router.get('/movies', (req, res) => {
+  res.json(getAll('SELECT * FROM movies ORDER BY id DESC'));
+});
+
+router.post('/movies', (req, res) => {
+  try {
+    const { title, description, category, poster_url, video_url, duration, year, rating } = req.body;
+    const result = run('INSERT INTO movies (title, description, category, poster_url, video_url, duration, year, rating) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [title, description, category || 'general', poster_url || '', video_url || '', duration, year, rating]);
+    res.json({ id: result.lastInsertRowid, message: 'Movie created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/movies/:id', (req, res) => {
+  const { title, description, category, poster_url, video_url, duration, year, rating, is_active } = req.body;
+  const mv = getOne('SELECT * FROM movies WHERE id = ?', [req.params.id]);
+  if (!mv) return res.status(404).json({ error: 'Movie not found' });
+  run('UPDATE movies SET title=?, description=?, category=?, poster_url=?, video_url=?, duration=?, year=?, rating=?, is_active=? WHERE id=?', [
+    title ?? mv.title, description ?? mv.description, category ?? mv.category,
+    poster_url ?? mv.poster_url, video_url ?? mv.video_url, duration ?? mv.duration,
+    year ?? mv.year, rating ?? mv.rating, is_active ?? mv.is_active, req.params.id
+  ]);
+  res.json({ message: 'Movie updated' });
+});
+
+router.delete('/movies/:id', (req, res) => {
+  run('DELETE FROM movies WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Movie deleted' });
+});
+
+// ===== SERIES =====
+router.get('/series', (req, res) => {
+  const series = getAll('SELECT * FROM series ORDER BY id DESC');
+  series.forEach(s => {
+    s.episode_count = getOne('SELECT COUNT(*) as count FROM episodes WHERE series_id = ?', [s.id]).count;
+  });
+  res.json(series);
+});
+
+router.post('/series', (req, res) => {
+  try {
+    const { title, description, category, poster_url, total_seasons, year, rating } = req.body;
+    const result = run('INSERT INTO series (title, description, category, poster_url, total_seasons, year, rating) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [title, description, category || 'drama', poster_url || '', total_seasons || 1, year, rating]);
+    res.json({ id: result.lastInsertRowid, message: 'Series created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/series/:id', (req, res) => {
+  const { title, description, category, poster_url, total_seasons, year, rating, is_active } = req.body;
+  const s = getOne('SELECT * FROM series WHERE id = ?', [req.params.id]);
+  if (!s) return res.status(404).json({ error: 'Series not found' });
+  run('UPDATE series SET title=?, description=?, category=?, poster_url=?, total_seasons=?, year=?, rating=?, is_active=? WHERE id=?', [
+    title ?? s.title, description ?? s.description, category ?? s.category,
+    poster_url ?? s.poster_url, total_seasons ?? s.total_seasons,
+    year ?? s.year, rating ?? s.rating, is_active ?? s.is_active, req.params.id
+  ]);
+  res.json({ message: 'Series updated' });
+});
+
+router.delete('/series/:id', (req, res) => {
+  run('DELETE FROM episodes WHERE series_id = ?', [req.params.id]);
+  run('DELETE FROM series WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Series and episodes deleted' });
+});
+
+// ===== EPISODES =====
+router.get('/series/:id/episodes', (req, res) => {
+  res.json(getAll('SELECT * FROM episodes WHERE series_id = ? ORDER BY season, episode_number', [req.params.id]));
+});
+
+router.post('/series/:id/episodes', (req, res) => {
+  try {
+    const { season, episode_number, title, description, video_url, duration } = req.body;
+    const result = run('INSERT INTO episodes (series_id, season, episode_number, title, description, video_url, duration) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [req.params.id, season || 1, episode_number, title, description || '', video_url || '', duration]);
+    res.json({ id: result.lastInsertRowid, message: 'Episode created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/episodes/:id', (req, res) => {
+  const { season, episode_number, title, description, video_url, duration, is_active } = req.body;
+  const ep = getOne('SELECT * FROM episodes WHERE id = ?', [req.params.id]);
+  if (!ep) return res.status(404).json({ error: 'Episode not found' });
+  run('UPDATE episodes SET season=?, episode_number=?, title=?, description=?, video_url=?, duration=?, is_active=? WHERE id=?', [
+    season ?? ep.season, episode_number ?? ep.episode_number, title ?? ep.title,
+    description ?? ep.description, video_url ?? ep.video_url, duration ?? ep.duration,
+    is_active ?? ep.is_active, req.params.id
+  ]);
+  res.json({ message: 'Episode updated' });
+});
+
+router.delete('/episodes/:id', (req, res) => {
+  run('DELETE FROM episodes WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Episode deleted' });
+});
+
+// ===== SUBSCRIPTIONS =====
+router.get('/subscriptions', (req, res) => {
+  res.json(getAll('SELECT * FROM subscriptions ORDER BY sort_order'));
+});
+
+router.post('/subscriptions', (req, res) => {
+  try {
+    const { name, name_ar, price, duration_days, max_devices, quality, features, discount_percent } = req.body;
+    const result = run('INSERT INTO subscriptions (name, name_ar, price, duration_days, max_devices, quality, features, discount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, name_ar || '', price || 0, duration_days || 30, max_devices || 1, quality || 'SD',
+       typeof features === 'string' ? features : JSON.stringify(features || []), discount_percent || 0]);
+    res.json({ id: result.lastInsertRowid, message: 'Plan created' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/subscriptions/:id', (req, res) => {
+  const { name, name_ar, price, duration_days, max_devices, quality, features, discount_percent, is_active } = req.body;
+  const sub = getOne('SELECT * FROM subscriptions WHERE id = ?', [req.params.id]);
+  if (!sub) return res.status(404).json({ error: 'Not found' });
+  run('UPDATE subscriptions SET name=?, name_ar=?, price=?, duration_days=?, max_devices=?, quality=?, features=?, discount_percent=?, is_active=? WHERE id=?', [
+    name ?? sub.name, name_ar ?? sub.name_ar, price ?? sub.price,
+    duration_days ?? sub.duration_days, max_devices ?? sub.max_devices,
+    quality ?? sub.quality,
+    features ? (typeof features === 'string' ? features : JSON.stringify(features)) : sub.features,
+    discount_percent ?? sub.discount_percent, is_active ?? sub.is_active, req.params.id
+  ]);
+  res.json({ message: 'Subscription updated' });
+});
+
+router.delete('/subscriptions/:id', (req, res) => {
+  run('DELETE FROM subscriptions WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Plan deleted' });
+});
+
+// ===== BULK IMPORT CHANNELS =====
+// Accepts M3U format or simple format: name|category|url|backup_url|backup_url2
+router.post('/bulk-import', (req, res) => {
+  try {
+    const { content, format } = req.body;
+    if (!content) return res.status(400).json({ error: 'No content provided' });
+
+    let channels = [];
+
+    if (format === 'm3u' || content.trim().startsWith('#EXTM3U')) {
+      // Parse M3U format
+      const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('#EXTINF:')) {
+          const info = lines[i];
+          const url = (lines[i + 1] && !lines[i + 1].startsWith('#')) ? lines[i + 1] : '';
+          if (!url) continue;
+
+          // Parse #EXTINF:-1 tvg-logo="..." group-title="...",Channel Name
+          const nameMatch = info.match(/,(.+)$/);
+          const name = nameMatch ? nameMatch[1].trim() : 'Unknown';
+          const logoMatch = info.match(/tvg-logo="([^"]*)"/);
+          const logo = logoMatch ? logoMatch[1] : '';
+          const groupMatch = info.match(/group-title="([^"]*)"/);
+          const category = groupMatch ? groupMatch[1] : 'imported';
+
+          channels.push({ name, category, stream_url: url, logo_url: logo, backup_url: '', backup_url2: '' });
+          i++; // skip url line
+        }
+      }
+    } else {
+      // Simple format: name|category|url  or  name|category|url|backup|backup2
+      const lines = content.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+      lines.forEach(line => {
+        const parts = line.split('|').map(p => p.trim());
+        if (parts.length >= 3) {
+          channels.push({
+            name: parts[0],
+            category: parts[1] || 'imported',
+            stream_url: parts[2],
+            logo_url: parts[3] || '',
+            backup_url: parts[4] || '',
+            backup_url2: parts[5] || ''
+          });
+        } else if (parts.length === 2) {
+          // name|url format
+          channels.push({ name: parts[0], category: 'imported', stream_url: parts[1], logo_url: '', backup_url: '', backup_url2: '' });
+        }
+      });
+    }
+
+    if (channels.length === 0) return res.status(400).json({ error: 'No valid channels found in content' });
+
+    let added = 0, updated = 0, skipped = 0;
+    const maxSort = (getOne('SELECT MAX(sort_order) as m FROM channels', []) || {}).m || 0;
+
+    channels.forEach((ch, idx) => {
+      try {
+        // Check if channel with same name already exists
+        const existing = getOne('SELECT * FROM channels WHERE name = ?', [ch.name]);
+        if (existing) {
+          // Update stream URL (and backup/logo if provided)
+          run('UPDATE channels SET stream_url=?, backup_url=?, backup_url2=?, category=?, logo_url=? WHERE id=?', [
+            ch.stream_url,
+            ch.backup_url || existing.backup_url || '',
+            ch.backup_url2 || existing.backup_url2 || '',
+            ch.category !== 'imported' ? ch.category : existing.category,
+            ch.logo_url || existing.logo_url || '',
+            existing.id
+          ]);
+          updated++;
+        } else {
+          // New channel - insert
+          run('INSERT INTO channels (name, category, stream_url, backup_url, backup_url2, logo_url, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [ch.name, ch.category, ch.stream_url, ch.backup_url, ch.backup_url2, ch.logo_url, maxSort + idx + 1]);
+          added++;
+        }
+      } catch (e) {
+        skipped++;
+      }
+    });
+
+    res.json({
+      message: `✅ ${added} added, 🔄 ${updated} updated, ⏭️ ${skipped} skipped`,
+      added, updated, skipped, total: channels.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== MEDIA UPLOAD =====
+router.post('/upload', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const isVideo = req.file.mimetype.startsWith('video/');
+    const fileUrl = '/media/' + (isVideo ? 'videos/' : 'images/') + req.file.filename;
+
+    // If auto_add_movie is true and it's a video, create a movie entry
+    let movieId = null;
+    if (isVideo && req.body.auto_add === 'true') {
+      const title = req.body.title || req.file.originalname.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ');
+      const category = req.body.category || 'uploaded';
+      const year = req.body.year ? parseInt(req.body.year) : null;
+      const description = req.body.description || '';
+      const result = run('INSERT INTO movies (title, description, category, video_url, year) VALUES (?, ?, ?, ?, ?)',
+        [title, description, category, fileUrl, year]);
+      movieId = result.lastInsertRowid;
+    }
+
+    res.json({
+      message: isVideo && movieId ? 'Video uploaded & movie added!' : 'File uploaded successfully',
+      url: fileUrl,
+      filename: req.file.filename,
+      size: req.file.size,
+      mimetype: req.file.mimetype,
+      movieId
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Multiple files upload
+router.post('/upload-multiple', upload.array('files', 50), (req, res) => {
+  try {
+    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+    const files = req.files.map(f => ({
+      url: '/media/' + (f.mimetype.startsWith('video/') ? 'videos/' : 'images/') + f.filename,
+      filename: f.filename,
+      originalName: f.originalname,
+      size: f.size,
+      mimetype: f.mimetype
+    }));
+    res.json({ message: `${files.length} files uploaded`, files });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List uploaded media
+router.get('/media', (req, res) => {
+  try {
+    const files = [];
+    ['videos', 'images'].forEach(subDir => {
+      const dir = path.join(MEDIA_DIR, subDir);
+      if (fs.existsSync(dir)) {
+        fs.readdirSync(dir).forEach(f => {
+          const stat = fs.statSync(path.join(dir, f));
+          files.push({
+            url: '/media/' + subDir + '/' + f,
+            filename: f,
+            type: subDir === 'videos' ? 'video' : 'image',
+            size: stat.size,
+            created: stat.birthtime
+          });
+        });
+      }
+    });
+    files.sort((a, b) => new Date(b.created) - new Date(a.created));
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;

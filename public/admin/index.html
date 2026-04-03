@@ -1,0 +1,1390 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPTV Admin Panel</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #0a0e1a; color: #e0e0e0; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0a0e1a; } ::-webkit-scrollbar-thumb { background: #2a3a5a; border-radius: 3px; }
+
+    .login-container { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: linear-gradient(135deg, #0a0e1a 0%, #1a1a2e 50%, #0a0e1a 100%); }
+    .login-box { background: #141828; padding: 40px; border-radius: 16px; width: 400px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); border: 1px solid #1e2844; }
+    .login-box h1 { text-align: center; margin-bottom: 8px; color: #00d4ff; font-size: 26px; }
+    .login-box .subtitle { text-align: center; color: #5a6a8a; margin-bottom: 30px; font-size: 13px; }
+    .login-box input { width: 100%; padding: 13px 16px; margin-bottom: 14px; border: 1px solid #1e2844; border-radius: 10px; background: #0a0e1a; color: #e0e0e0; font-size: 14px; transition: border 0.2s; }
+    .login-box input:focus { outline: none; border-color: #00d4ff; }
+    .login-box button { width: 100%; padding: 13px; background: linear-gradient(135deg, #00d4ff, #0099cc); color: #0a0e1a; border: none; border-radius: 10px; font-size: 15px; font-weight: bold; cursor: pointer; transition: opacity 0.2s; }
+    .login-box button:hover { opacity: 0.9; }
+    .login-error { color: #ff4757; text-align: center; margin-bottom: 12px; display: none; font-size: 13px; }
+
+    .dashboard { display: none; }
+    .sidebar { position: fixed; right: 0; top: 0; width: 220px; height: 100vh; background: #0d1120; border-left: 1px solid #1e2844; z-index: 100; display: flex; flex-direction: column; }
+    .sidebar .logo { padding: 20px; text-align: center; border-bottom: 1px solid #1e2844; }
+    .sidebar .logo h2 { color: #00d4ff; font-size: 20px; }
+    .sidebar .logo span { color: #5a6a8a; font-size: 11px; }
+    .sidebar nav { flex: 1; padding: 10px 0; }
+    .sidebar nav a { display: flex; align-items: center; gap: 10px; padding: 12px 20px; color: #6a7a9a; text-decoration: none; font-size: 14px; transition: all 0.2s; cursor: pointer; border-right: 3px solid transparent; }
+    .sidebar nav a:hover { color: #00d4ff; background: #141828; }
+    .sidebar nav a.active { color: #00d4ff; background: #141828; border-right-color: #00d4ff; }
+    .sidebar nav a .icon { font-size: 18px; width: 24px; text-align: center; }
+    .sidebar .logout-btn { padding: 16px 20px; border-top: 1px solid #1e2844; color: #ff4757; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 10px; }
+    .sidebar .logout-btn:hover { background: #1a1020; }
+
+    .main { margin-right: 220px; padding: 24px; min-height: 100vh; }
+    .page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+    .page-header h2 { font-size: 22px; color: #fff; }
+
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 28px; }
+    .stat-card { background: #141828; padding: 20px; border-radius: 12px; border: 1px solid #1e2844; }
+    .stat-card .number { font-size: 32px; font-weight: bold; background: linear-gradient(135deg, #00d4ff, #00ff88); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .stat-card .label { color: #5a6a8a; margin-top: 4px; font-size: 13px; }
+
+    .card-section { background: #141828; border-radius: 12px; border: 1px solid #1e2844; overflow-x: auto; margin-bottom: 20px; }
+    .card-section .card-header { padding: 16px 20px; border-bottom: 1px solid #1e2844; display: flex; justify-content: space-between; align-items: center; }
+    .card-section .card-header h3 { color: #8899bb; font-size: 14px; text-transform: uppercase; letter-spacing: 1px; }
+
+    table { width: 100%; border-collapse: collapse; }
+    th { padding: 12px 16px; text-align: right; color: #5a6a8a; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; background: #0d1120; }
+    td { padding: 12px 16px; border-bottom: 1px solid #1e2844; font-size: 13px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
+    td:last-child { white-space: nowrap; max-width: none; overflow: visible; }
+    tr:hover td { background: #1a2040; }
+
+    .badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+    .badge-active { background: #00ff8820; color: #00ff88; }
+    .badge-inactive { background: #ff475720; color: #ff4757; }
+    .badge-trial { background: #ffa50020; color: #ffa500; }
+    .badge-monthly { background: #00d4ff20; color: #00d4ff; }
+    .badge-yearly { background: #ff69b420; color: #ff69b4; }
+    .badge-admin { background: #9b59b620; color: #9b59b6; }
+
+    .btn { padding: 7px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; }
+    .btn-primary { background: #00d4ff; color: #0a0e1a; }
+    .btn-danger { background: #ff4757; color: white; }
+    .btn-success { background: #00ff88; color: #0a0e1a; }
+    .btn-warning { background: #ffa500; color: #0a0e1a; }
+    .btn-ghost { background: transparent; border: 1px solid #2a3a5a; color: #8899bb; }
+    .btn:hover { opacity: 0.85; transform: translateY(-1px); }
+    .btn-sm { padding: 5px 10px; font-size: 11px; }
+
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 300; justify-content: center; align-items: center; backdrop-filter: blur(4px); }
+    .modal-overlay.show { display: flex; }
+    .modal { background: #141828; padding: 28px; border-radius: 14px; width: 480px; max-height: 85vh; overflow-y: auto; border: 1px solid #1e2844; }
+    .modal h3 { margin-bottom: 20px; color: #00d4ff; font-size: 18px; }
+    .modal label { display: block; margin-bottom: 5px; color: #5a6a8a; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .modal input, .modal select, .modal textarea { width: 100%; padding: 10px 12px; margin-bottom: 14px; border: 1px solid #1e2844; border-radius: 8px; background: #0a0e1a; color: #e0e0e0; font-size: 13px; }
+    .modal input:focus, .modal select:focus, .modal textarea:focus { outline: none; border-color: #00d4ff; }
+    .modal textarea { height: 70px; resize: vertical; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .section { display: none; }
+    .section.active { display: block; }
+
+    .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap; }
+    .search-box { padding: 9px 14px; border: 1px solid #1e2844; border-radius: 8px; background: #0a0e1a; color: #e0e0e0; width: 280px; font-size: 13px; }
+    .search-box:focus { outline: none; border-color: #00d4ff; }
+
+    .filter-tabs { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+    .filter-tabs button { padding: 6px 14px; border-radius: 6px; border: 1px solid #1e2844; background: transparent; color: #6a7a9a; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+    .filter-tabs button.active { background: #00d4ff; border-color: #00d4ff; color: #0a0e1a; }
+    .filter-tabs button:hover { border-color: #00d4ff; }
+
+    .sub-card { background: #0d1120; border: 1px solid #1e2844; border-radius: 12px; padding: 20px; text-align: center; position: relative; }
+    .sub-card.popular { border-color: #00d4ff; }
+    .sub-card .pop-badge { position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: #00d4ff; color: #0a0e1a; padding: 3px 12px; border-radius: 10px; font-size: 10px; font-weight: bold; }
+    .sub-card h4 { color: #fff; margin-bottom: 4px; font-size: 16px; }
+    .sub-card .price { font-size: 28px; font-weight: bold; color: #00d4ff; margin: 10px 0; }
+    .sub-card .price span { font-size: 13px; color: #5a6a8a; }
+    .sub-card .duration { color: #5a6a8a; font-size: 13px; margin-bottom: 12px; }
+    .sub-card .features { list-style: none; text-align: right; font-size: 12px; color: #8899bb; }
+    .sub-card .features li { padding: 4px 0; }
+    .sub-card .features li::before { content: ''; margin-left: 6px; color: #00ff88; }
+    .sub-card .discount { background: #ff475730; color: #ff4757; padding: 3px 10px; border-radius: 10px; font-size: 11px; display: inline-block; margin-bottom: 8px; }
+    .subs-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px; }
+
+    .episodes-panel { background: #0d1120; border: 1px solid #1e2844; border-radius: 10px; margin-top: 12px; padding: 16px; }
+    .episodes-panel h4 { color: #00d4ff; margin-bottom: 12px; }
+    .episode-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #1e2844; font-size: 13px; }
+    .episode-item:last-child { border-bottom: none; }
+    .season-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+    .season-tabs button { padding: 5px 12px; border-radius: 6px; border: 1px solid #1e2844; background: transparent; color: #6a7a9a; cursor: pointer; font-size: 12px; }
+    .season-tabs button.active { background: #00d4ff; border-color: #00d4ff; color: #0a0e1a; }
+    .copy-btn { cursor: pointer; padding: 3px 8px; background: #1e2844; border: none; color: #00d4ff; border-radius: 4px; font-size: 11px; }
+    .copy-btn:hover { background: #2a3a5a; }
+  </style>
+</head>
+<body>
+
+<div class="login-container" id="loginPage">
+  <div class="login-box">
+    <h1>IPTV Admin</h1>
+    <div class="subtitle">Control Panel</div>
+    <div class="login-error" id="loginError"></div>
+    <input type="text" id="loginUser" placeholder="Username" value="admin">
+    <input type="password" id="loginPass" placeholder="Password" value="admin123">
+    <button id="btnLogin">Login</button>
+  </div>
+</div>
+
+<div class="dashboard" id="dashboard">
+  <div class="sidebar">
+    <div class="logo"><h2>IPTV Panel</h2><span>Admin Control</span></div>
+    <nav>
+      <a class="active" data-action="section" data-section="home"><span class="icon">📊</span> Dashboard</a>
+      <a data-action="section" data-section="users"><span class="icon">👥</span> Users</a>
+      <a data-action="section" data-section="channels"><span class="icon">📺</span> Channels</a>
+      <a data-action="section" data-section="movies"><span class="icon">🎬</span> Movies</a>
+      <a data-action="section" data-section="series"><span class="icon">📀</span> Series</a>
+      <a data-action="section" data-section="subs"><span class="icon">💳</span> Subscriptions</a>
+      <a data-action="section" data-section="restream"><span class="icon">📡</span> Restream</a>
+      <a data-action="section" data-section="settings"><span class="icon">⚙️</span> Settings</a>
+    </nav>
+    <div class="logout-btn" id="btnLogout">🚪 Logout</div>
+  </div>
+
+  <div class="main">
+    <!-- HOME -->
+    <div class="section active" id="sec-home">
+      <div class="page-header"><h2>Dashboard</h2><span style="color:#5a6a8a;font-size:13px" id="serverUrl"></span></div>
+      <div class="stats" id="statsGrid"></div>
+      <div class="card-section">
+        <div class="card-header"><h3>Recent Users</h3></div>
+        <table><thead><tr><th>Username</th><th>Subscription</th><th>Status</th><th>Created</th><th>Last Login</th></tr></thead>
+        <tbody id="recentUsers"></tbody></table>
+      </div>
+    </div>
+
+    <!-- USERS -->
+    <div class="section" id="sec-users">
+      <div class="toolbar">
+        <h2>Users Management</h2>
+        <div style="display:flex;gap:10px">
+          <input type="text" class="search-box" placeholder="Search users..." oninput="filterUsers(this.value)">
+          <button class="btn btn-primary" id="btnAddUser">+ Add User</button>
+        </div>
+      </div>
+      <div class="card-section">
+        <table>
+          <thead><tr><th>#</th><th>Username</th><th>Role</th><th>Plan</th><th>Expires</th><th>Connections</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+          <tbody id="usersTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CHANNELS -->
+    <div class="section" id="sec-channels">
+      <div class="toolbar">
+        <h2>Channels (<span id="chCount">0</span>)</h2>
+        <div style="display:flex;gap:10px">
+          <input type="text" class="search-box" placeholder="Search channels..." oninput="filterChannels(this.value)">
+          <button class="btn btn-primary" id="btnAddChannel">+ Add Channel</button>
+          <button class="btn" style="background:#0984e3" id="btnBulkImport">📋 Bulk Import</button>
+        </div>
+      </div>
+      <div class="filter-tabs" id="channelFilters"></div>
+      <div class="card-section">
+        <table>
+          <thead><tr><th>#</th><th>Name</th><th>Category</th><th>Stream URL</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="channelsTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MOVIES -->
+    <div class="section" id="sec-movies">
+      <div class="toolbar">
+        <h2>Movies (<span id="mvCount">0</span>)</h2>
+        <div style="display:flex;gap:10px">
+          <input type="text" class="search-box" placeholder="Search movies..." oninput="filterMovies(this.value)">
+          <button class="btn btn-primary" id="btnAddMovie">+ Add Movie</button>
+          <button class="btn" style="background:#6c5ce7" id="btnUploadMedia">📤 Upload Video</button>
+          <button class="btn" style="background:#00b894" id="btnMediaLibrary">🎞️ Media Library</button>
+        </div>
+      </div>
+      <div class="filter-tabs" id="movieFilters"></div>
+      <div class="card-section">
+        <table>
+          <thead><tr><th>#</th><th>Title</th><th>Category</th><th>Year</th><th>Rating</th><th>Duration</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="moviesTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SERIES -->
+    <div class="section" id="sec-series">
+      <div class="toolbar">
+        <h2>Series (<span id="serCount">0</span>)</h2>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-primary" id="btnAddSeries">+ Add Series</button>
+        </div>
+      </div>
+      <div id="episodesPanel"></div>
+      <div class="filter-tabs" id="seriesFilters"></div>
+      <div class="card-section">
+        <table>
+          <thead><tr><th>#</th><th>Title</th><th>Category</th><th>Seasons</th><th>Episodes</th><th>Year</th><th>Rating</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="seriesTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- SUBSCRIPTIONS -->
+    <div class="section" id="sec-subs">
+      <div class="toolbar">
+        <h2>Subscription Plans</h2>
+        <button class="btn btn-primary" id="btnAddSub">+ Add Plan</button>
+      </div>
+      <div class="subs-grid" id="subsGrid"></div>
+      <div class="card-section">
+        <div class="card-header"><h3>Plans Details</h3></div>
+        <table>
+          <thead><tr><th>Name</th><th>Arabic</th><th>Price</th><th>Duration</th><th>Quality</th><th>Devices</th><th>Discount</th><th>Actions</th></tr></thead>
+          <tbody id="subsTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RESTREAM -->
+    <div class="section" id="sec-restream">
+      <div class="toolbar">
+        <h2>Restream Manager (<span id="rsCount">0</span> running)</h2>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-primary" id="btnAddRestream">+ Add Stream</button>
+          <button class="btn btn-success" data-action="rsRefresh" style="font-size:12px">Refresh</button>
+          <a href="/restream/playlist.m3u" target="_blank" class="btn" style="background:#0099cc;color:white;text-decoration:none;padding:8px 14px;border-radius:8px;font-size:12px">Download M3U</a>
+        </div>
+      </div>
+
+      <!-- Status Cards -->
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:20px" id="rsStats">
+        <div class="card-section" style="padding:16px;text-align:center">
+          <div style="font-size:28px;font-weight:bold;color:#00d4ff" id="rsTotalCount">0</div>
+          <div style="color:#5a6a8a;font-size:12px">Total Streams</div>
+        </div>
+        <div class="card-section" style="padding:16px;text-align:center">
+          <div style="font-size:28px;font-weight:bold;color:#00ff88" id="rsRunningCount">0</div>
+          <div style="color:#5a6a8a;font-size:12px">Running</div>
+        </div>
+        <div class="card-section" style="padding:16px;text-align:center">
+          <div style="font-size:28px;font-weight:bold;color:#ff4757" id="rsStoppedCount">0</div>
+          <div style="color:#5a6a8a;font-size:12px">Stopped</div>
+        </div>
+      </div>
+
+      <!-- Streams Table -->
+      <div class="card-section">
+        <table>
+          <thead><tr><th>Status</th><th>Name</th><th>Category</th><th>Source URL</th><th>Outputs</th><th>Stats</th><th>Actions</th></tr></thead>
+          <tbody id="rsTable"></tbody>
+        </table>
+      </div>
+
+      <!-- Add Stream Form (inline) -->
+      <div id="rsAddForm" style="display:none" class="card-section" style="padding:24px;margin-top:16px">
+        <div style="padding:20px">
+          <h3 style="color:#00d4ff;margin-bottom:16px">Add New Restream</h3>
+          <p style="color:#5a6a8a;margin-bottom:16px;font-size:13px">Format: http://host:port/username/password/channel_id</p>
+          <div class="form-row" style="display:flex;gap:10px;margin-bottom:10px">
+            <div style="flex:1"><label>Stream Name</label><input id="rs_name" placeholder="Channel Name"></div>
+            <div style="flex:1"><label>Category</label><input id="rs_cat" placeholder="sports, news, etc." value="general"></div>
+          </div>
+          <div style="margin-bottom:10px"><label>Stream URL</label><input id="rs_url" placeholder="http://server:8080/user/pass/12345"></div>
+          <div style="margin-bottom:10px"><label>Stream ID (optional)</label><input id="rs_id" placeholder="auto-generated if empty"></div>
+          <div style="display:flex;gap:10px">
+            <button class="btn btn-primary" data-action="rsSave">Add & Start Stream</button>
+            <button class="btn btn-ghost" data-action="rsCancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logs Panel -->
+      <div id="rsLogs" style="display:none" class="card-section" style="margin-top:16px">
+        <div style="padding:20px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <h4 style="color:#ffa500">Stream Logs</h4>
+            <button class="btn btn-ghost btn-sm" data-action="rsCloseLogs">Close</button>
+          </div>
+          <pre id="rsLogContent" style="background:#0a0e1a;padding:14px;border-radius:8px;font-size:11px;color:#8899bb;max-height:300px;overflow-y:auto;white-space:pre-wrap"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="section" id="sec-settings">
+      <div class="page-header"><h2>Server Settings</h2></div>
+
+      <!-- M3U Playlist Generator -->
+      <div class="card-section" style="padding:24px;margin-bottom:20px">
+        <h3 style="color:#00ff88;margin-bottom:16px">M3U Playlist Generator</h3>
+        <p style="color:#5a6a8a;margin-bottom:16px">Generate M3U playlist link for any user. Works with VLC, IPTV Smarters, TiviMate, etc.</p>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <input id="m3u_user" class="search-box" placeholder="Username" style="width:180px">
+          <input id="m3u_pass" class="search-box" placeholder="Password" style="width:180px">
+          <button class="btn btn-success" data-action="generateM3U">Generate Link</button>
+        </div>
+        <div id="m3uResult" style="display:none;background:#0a0e1a;padding:16px;border-radius:8px;font-family:monospace;font-size:12px">
+          <div style="margin-bottom:10px"><span style="color:#5a6a8a">M3U Playlist:</span></div>
+          <div style="margin-bottom:8px;word-break:break-all"><span id="m3uLink" style="color:#00ff88"></span> <button class="copy-btn" data-action="copyText" data-target="m3uLink">Copy</button></div>
+          <div style="margin-bottom:10px"><span style="color:#5a6a8a">Xtream Login:</span></div>
+          <div style="margin-bottom:4px"><span style="color:#5a6a8a">Host:</span> <span id="m3uHost" style="color:#00d4ff"></span> <button class="copy-btn" data-action="copyText" data-target="m3uHost">Copy</button></div>
+          <div style="margin-bottom:4px"><span style="color:#5a6a8a">Username:</span> <span id="m3uUser" style="color:#ffa500"></span> <button class="copy-btn" data-action="copyText" data-target="m3uUser">Copy</button></div>
+          <div><span style="color:#5a6a8a">Password:</span> <span id="m3uPass" style="color:#ffa500"></span> <button class="copy-btn" data-action="copyText" data-target="m3uPass">Copy</button></div>
+        </div>
+      </div>
+
+      <!-- Connection Info -->
+      <div class="card-section" style="padding:24px;margin-bottom:20px">
+        <h3 style="color:#00d4ff;margin-bottom:16px">Connection Info</h3>
+        <p style="color:#5a6a8a;margin-bottom:16px">Share these details with users:</p>
+        <div style="background:#0a0e1a;padding:16px;border-radius:8px;margin-bottom:16px;font-family:monospace;font-size:13px">
+          <div style="margin-bottom:8px"><span style="color:#5a6a8a">Server URL:</span> <span id="settingsUrl" style="color:#00d4ff"></span> <button class="copy-btn" data-action="copyText" data-target="settingsUrl">Copy</button></div>
+          <div style="margin-bottom:8px"><span style="color:#5a6a8a">Port:</span> <span style="color:#00ff88" id="settingsPort"></span></div>
+          <div style="margin-bottom:8px"><span style="color:#5a6a8a">Player:</span> <span id="settingsPlayer" style="color:#00d4ff"></span> <button class="copy-btn" data-action="copyText" data-target="settingsPlayer">Copy</button></div>
+        </div>
+      </div>
+
+      <!-- API Endpoints -->
+      <div class="card-section" style="padding:24px">
+        <h3 style="color:#00d4ff;margin-bottom:16px">API Endpoints</h3>
+        <div style="background:#0a0e1a;padding:16px;border-radius:8px;font-family:monospace;font-size:12px;color:#8899bb">
+          <div style="margin-bottom:6px;color:#00ff88">Xtream Codes API:</div>
+          <div style="margin-bottom:6px">GET /player_api.php?username=X&password=Y</div>
+          <div style="margin-bottom:6px">GET /player_api.php?...&action=get_live_streams</div>
+          <div style="margin-bottom:6px">GET /player_api.php?...&action=get_vod_streams</div>
+          <div style="margin-bottom:6px">GET /player_api.php?...&action=get_series</div>
+          <div style="margin-bottom:12px">GET /player_api.php?...&action=get_series_info&series_id=1</div>
+          <div style="margin-bottom:6px;color:#00ff88">M3U Playlist:</div>
+          <div style="margin-bottom:12px">GET /get.php?username=X&password=Y&type=m3u_plus</div>
+          <div style="margin-bottom:6px;color:#00ff88">Movie Channel:</div>
+          <div style="margin-bottom:6px">GET /live/movies.m3u8?token=user:pass</div>
+          <div>GET /api/movie-channel</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script>
+const API = '';
+let token = localStorage.getItem('iptv_token');
+let allUsers=[], allChannels=[], allMovies=[], allSeries=[];
+
+async function api(path, method='GET', body=null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API + path, opts);
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Failed');
+  return data;
+}
+
+// AUTH
+async function login() {
+  try {
+    const data = await api('/api/auth/login', 'POST', {
+      username: document.getElementById('loginUser').value,
+      password: document.getElementById('loginPass').value
+    });
+    if (data.user.role !== 'admin') throw new Error('Admin access required');
+    token = data.token;
+    localStorage.setItem('iptv_token', token);
+    showDashboard();
+  } catch(e) {
+    const el = document.getElementById('loginError');
+    el.textContent = e.message; el.style.display = 'block';
+  }
+}
+
+function logout() {
+  token = null; localStorage.removeItem('iptv_token');
+  document.getElementById('loginPage').style.display = 'flex';
+  document.getElementById('dashboard').style.display = 'none';
+}
+
+async function showDashboard() {
+  document.getElementById('loginPage').style.display = 'none';
+  document.getElementById('dashboard').style.display = 'block';
+  document.getElementById('serverUrl').textContent = window.location.origin;
+  document.getElementById('settingsUrl').textContent = window.location.origin;
+  document.getElementById('settingsPort').textContent = window.location.port || '80';
+  await loadStats();
+}
+
+// STATS
+async function loadStats() {
+  const s = await api('/api/admin/stats');
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card"><div class="number">${s.totalUsers}</div><div class="label">Users</div></div>
+    <div class="stat-card"><div class="number">${s.activeUsers}</div><div class="label">Active Users</div></div>
+    <div class="stat-card"><div class="number">${s.totalChannels}</div><div class="label">Channels</div></div>
+    <div class="stat-card"><div class="number">${s.totalMovies}</div><div class="label">Movies</div></div>
+    <div class="stat-card"><div class="number">${s.totalSeries}</div><div class="label">Series</div></div>
+    <div class="stat-card"><div class="number">${s.totalEpisodes}</div><div class="label">Episodes</div></div>
+  `;
+  document.getElementById('recentUsers').innerHTML = (s.recentUsers||[]).map(u => `
+    <tr>
+      <td>${u.username}</td>
+      <td><span class="badge badge-${u.subscription}">${u.subscription}</span></td>
+      <td><span class="badge ${u.is_active?'badge-active':'badge-inactive'}">${u.is_active?'Active':'Inactive'}</span></td>
+      <td>${u.created_at||'-'}</td>
+      <td>${u.last_login||'Never'}</td>
+    </tr>
+  `).join('');
+}
+
+// USERS
+async function loadUsers() {
+  allUsers = await api('/api/admin/users');
+  renderUsers(allUsers);
+}
+function renderUsers(users) {
+  document.getElementById('usersTable').innerHTML = users.map(u => `
+    <tr>
+      <td>${u.id}</td>
+      <td><strong>${u.username}</strong></td>
+      <td><span class="badge ${u.role==='admin'?'badge-admin':'badge-active'}">${u.role}</span></td>
+      <td><span class="badge badge-${u.subscription}">${u.subscription}</span></td>
+      <td>${u.expires_at||'Unlimited'}</td>
+      <td>${u.max_connections||1}</td>
+      <td><span class="badge ${u.is_active?'badge-active':'badge-inactive'}">${u.is_active?'Active':'Blocked'}</span></td>
+      <td>${u.last_login||'Never'}</td>
+      <td>
+        <button class="btn btn-primary btn-sm" data-action="editUser" data-id="${u.id}">Edit</button>
+        <button class="btn btn-warning btn-sm" data-action="toggleUser" data-id="${u.id}" data-val="${u.is_active?0:1}">${u.is_active?'Block':'Activate'}</button>
+        ${u.role!=='admin'?`<button class="btn btn-danger btn-sm" data-action="deleteUser" data-id="${u.id}">Delete</button>`:''}
+      </td>
+    </tr>
+  `).join('');
+}
+function filterUsers(q) { renderUsers(allUsers.filter(u => u.username.toLowerCase().includes(q.toLowerCase()))); }
+async function toggleUser(id,active) { await api(`/api/admin/users/${id}`,'PUT',{is_active:active}); await loadUsers(); }
+async function deleteUser(id) { if(!confirm('Delete user?'))return; await api(`/api/admin/users/${id}`,'DELETE'); await loadUsers(); }
+
+function openUserModal(id=null) {
+  const u = id ? allUsers.find(x=>x.id===id) : null;
+  document.getElementById('modalContent').innerHTML = `
+    <h3>${u?'Edit User':'Add User'}</h3>
+    <label>Username</label><input id="m_username" value="${u?.username||''}">
+    ${!u?'<label>Password</label><input id="m_password" type="password" placeholder="Default: 1234">':''}
+    <div class="form-row">
+      <div><label>Role</label><select id="m_role"><option value="user" ${u?.role==='user'?'selected':''}>User</option><option value="admin" ${u?.role==='admin'?'selected':''}>Admin</option></select></div>
+      <div><label>Subscription</label><select id="m_sub"><option value="trial" ${u?.subscription==='trial'?'selected':''}>Free Trial</option><option value="monthly" ${u?.subscription==='monthly'?'selected':''}>Monthly</option><option value="6months" ${u?.subscription==='6months'?'selected':''}>6 Months</option><option value="yearly" ${u?.subscription==='yearly'?'selected':''}>Yearly</option></select></div>
+    </div>
+    <div class="form-row">
+      <div><label>Expires At</label><input id="m_expires" type="date" value="${u?.expires_at?.split('T')[0]||''}"></div>
+      <div><label>Max Connections</label><input id="m_conns" type="number" value="${u?.max_connections||1}" min="1"></div>
+    </div>
+    <label>Notes</label><textarea id="m_notes">${u?.notes||''}</textarea>
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-action="saveUser" data-id="${u?.id||'null'}">${u?'Update':'Create'}</button>
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveUser(id) {
+  const body = {
+    username: document.getElementById('m_username').value,
+    role: document.getElementById('m_role').value,
+    subscription: document.getElementById('m_sub').value,
+    expires_at: document.getElementById('m_expires').value||null,
+    max_connections: parseInt(document.getElementById('m_conns').value)||1,
+    notes: document.getElementById('m_notes').value||null
+  };
+  if(!id) body.password = document.getElementById('m_password')?.value||'1234';
+  await api(id?`/api/admin/users/${id}`:'/api/admin/users',id?'PUT':'POST',body);
+  closeModal(); await loadUsers();
+}
+
+// CHANNELS
+let channelFilter = null;
+async function loadChannels() {
+  allChannels = await api('/api/admin/channels');
+  document.getElementById('chCount').textContent = allChannels.length;
+  const cats = [...new Set(allChannels.map(c=>c.category))];
+  document.getElementById('channelFilters').innerHTML =
+    `<button class="${!channelFilter?'active':''}" data-action="chFilter" data-cat="">All (${allChannels.length})</button>`+
+    cats.map(c=>{
+      const cnt = allChannels.filter(ch=>ch.category===c).length;
+      return `<button class="${channelFilter===c?'active':''}" data-action="chFilter" data-cat="${c}">${c} (${cnt})</button>`;
+    }).join('');
+  renderChannels();
+}
+function renderChannels() {
+  const filtered = channelFilter ? allChannels.filter(c=>c.category===channelFilter) : allChannels;
+  document.getElementById('channelsTable').innerHTML = filtered.map(c=>`
+    <tr>
+      <td>${c.id}</td>
+      <td><strong>${c.name}</strong></td>
+      <td><span class="badge" style="background:#1e284420;color:#8899bb">${c.category}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.stream_url||'<span style="color:#ff4757">No URL</span>'}${c.backup_url?' <span style="color:#00ff88;font-size:10px">+BK</span>':''}</td>
+      <td><span class="badge ${c.is_active?'badge-active':'badge-inactive'}">${c.is_active?'Active':'Off'}</span></td>
+      <td>
+        <button class="btn btn-primary btn-sm" data-action="editChannel" data-id="${c.id}">Edit</button>
+        <button class="btn btn-danger btn-sm" data-action="deleteChannel" data-id="${c.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+function filterChannels(q) {
+  channelFilter = null;
+  const filtered = allChannels.filter(c=>c.name.toLowerCase().includes(q.toLowerCase()));
+  document.getElementById('channelsTable').innerHTML = filtered.map(c=>`
+    <tr>
+      <td>${c.id}</td><td><strong>${c.name}</strong></td>
+      <td><span class="badge" style="background:#1e284420;color:#8899bb">${c.category}</span></td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.stream_url||'<span style="color:#ff4757">No URL</span>'}${c.backup_url?' <span style="color:#00ff88;font-size:10px">+BK</span>':''}</td>
+      <td><span class="badge ${c.is_active?'badge-active':'badge-inactive'}">${c.is_active?'Active':'Off'}</span></td>
+      <td><button class="btn btn-primary btn-sm" data-action="editChannel" data-id="${c.id}">Edit</button><button class="btn btn-danger btn-sm" data-action="deleteChannel" data-id="${c.id}">Delete</button></td>
+    </tr>
+  `).join('');
+}
+async function deleteChannel(id) { if(!confirm('Delete?'))return; await api(`/api/admin/channels/${id}`,'DELETE'); await loadChannels(); }
+
+function openChannelModal(id=null) {
+  const c = id ? allChannels.find(x=>x.id===id) : null;
+  const cats = ['bein-sports','bein-premium','bein-movies','bein-entertainment','news','sports','entertainment','movies-channels','kids','music','documentary','religious','general'];
+  document.getElementById('modalContent').innerHTML = `
+    <h3>${c?'Edit Channel':'Add Channel'}</h3>
+    <label>Channel Name</label><input id="m_chname" value="${c?.name||''}">
+    <label>Category</label><select id="m_chcat">${cats.map(cat=>`<option value="${cat}" ${c?.category===cat?'selected':''}>${cat}</option>`).join('')}</select>
+    <label>Stream URL (Main)</label><input id="m_churl" value="${c?.stream_url||''}" placeholder="http://... or rtmp://...">
+    <label>Backup URL 1</label><input id="m_chbackup" value="${c?.backup_url||''}" placeholder="Backup stream if main fails">
+    <label>Backup URL 2</label><input id="m_chbackup2" value="${c?.backup_url2||''}" placeholder="Second backup (optional)">
+    <label>Logo URL</label><input id="m_chlogo" value="${c?.logo_url||''}" placeholder="Optional">
+    <label>Sort Order</label><input id="m_chorder" type="number" value="${c?.sort_order||0}">
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-action="saveChannel" data-id="${c?.id||'null'}">${c?'Update':'Create'}</button>
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveChannel(id) {
+  const body = {
+    name: document.getElementById('m_chname').value,
+    category: document.getElementById('m_chcat').value,
+    stream_url: document.getElementById('m_churl').value,
+    backup_url: document.getElementById('m_chbackup').value,
+    backup_url2: document.getElementById('m_chbackup2').value,
+    logo_url: document.getElementById('m_chlogo').value,
+    sort_order: parseInt(document.getElementById('m_chorder').value)||0
+  };
+  await api(id?`/api/admin/channels/${id}`:'/api/admin/channels',id?'PUT':'POST',body);
+  closeModal(); await loadChannels();
+}
+
+// MOVIES
+let movieFilter = null;
+async function loadMovies() {
+  allMovies = await api('/api/admin/movies');
+  document.getElementById('mvCount').textContent = allMovies.length;
+  const cats = [...new Set(allMovies.map(m=>m.category))];
+  document.getElementById('movieFilters').innerHTML =
+    `<button class="${!movieFilter?'active':''}" data-action="mvFilter" data-cat="">All (${allMovies.length})</button>`+
+    cats.map(c=>`<button class="${movieFilter===c?'active':''}" data-action="mvFilter" data-cat="${c}">${c} (${allMovies.filter(m=>m.category===c).length})</button>`).join('');
+  renderMovies();
+}
+function renderMovies() {
+  const filtered = movieFilter ? allMovies.filter(m=>m.category===movieFilter) : allMovies;
+  document.getElementById('moviesTable').innerHTML = filtered.map(m=>`
+    <tr>
+      <td>${m.id}</td><td><strong>${m.title}</strong></td>
+      <td><span class="badge" style="background:#1e284420;color:#8899bb">${m.category}</span></td>
+      <td>${m.year||'-'}</td>
+      <td>${m.rating?'⭐'+m.rating:'-'}</td>
+      <td>${m.duration?m.duration+'m':'-'}</td>
+      <td><span class="badge ${m.is_active?'badge-active':'badge-inactive'}">${m.is_active?'Active':'Off'}</span></td>
+      <td>
+        <button class="btn btn-primary btn-sm" data-action="editMovie" data-id="${m.id}">Edit</button>
+        <button class="btn btn-danger btn-sm" data-action="deleteMovie" data-id="${m.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+function filterMovies(q) {
+  const filtered = allMovies.filter(m=>m.title.toLowerCase().includes(q.toLowerCase()));
+  document.getElementById('moviesTable').innerHTML = filtered.map(m=>`
+    <tr><td>${m.id}</td><td><strong>${m.title}</strong></td><td>${m.category}</td><td>${m.year||'-'}</td><td>${m.rating?'⭐'+m.rating:'-'}</td><td>${m.duration?m.duration+'m':'-'}</td>
+    <td><span class="badge ${m.is_active?'badge-active':'badge-inactive'}">${m.is_active?'Active':'Off'}</span></td>
+    <td><button class="btn btn-primary btn-sm" data-action="editMovie" data-id="${m.id}">Edit</button><button class="btn btn-danger btn-sm" data-action="deleteMovie" data-id="${m.id}">Delete</button></td></tr>
+  `).join('');
+}
+async function deleteMovie(id) { if(!confirm('Delete?'))return; await api(`/api/admin/movies/${id}`,'DELETE'); await loadMovies(); }
+
+function openMovieModal(id=null) {
+  const m = id ? allMovies.find(x=>x.id===id) : null;
+  const cats = ['action','comedy','drama','horror','sci-fi','animation','arabic','documentary','thriller','romance'];
+  document.getElementById('modalContent').innerHTML = `
+    <h3>${m?'Edit Movie':'Add Movie'}</h3>
+    <label>Title</label><input id="m_mtitle" value="${m?.title||''}">
+    <label>Description</label><textarea id="m_mdesc">${m?.description||''}</textarea>
+    <div class="form-row">
+      <div><label>Category</label><select id="m_mcat">${cats.map(c=>`<option value="${c}" ${m?.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div><label>Year</label><input id="m_myear" type="number" value="${m?.year||2024}"></div>
+    </div>
+    <div class="form-row">
+      <div><label>Duration (min)</label><input id="m_mdur" type="number" value="${m?.duration||''}"></div>
+      <div><label>Rating</label><input id="m_mrating" type="number" step="0.1" max="10" value="${m?.rating||''}"></div>
+    </div>
+    <label>Video URL</label><input id="m_murl" value="${m?.video_url||''}" placeholder="http://... or /media/...">
+    <label>Poster URL</label><input id="m_mposter" value="${m?.poster_url||''}" placeholder="Optional">
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-action="saveMovie" data-id="${m?.id||'null'}">${m?'Update':'Create'}</button>
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveMovie(id) {
+  const body = {
+    title: document.getElementById('m_mtitle').value,
+    description: document.getElementById('m_mdesc').value,
+    category: document.getElementById('m_mcat').value,
+    year: parseInt(document.getElementById('m_myear').value)||null,
+    duration: parseInt(document.getElementById('m_mdur').value)||null,
+    rating: parseFloat(document.getElementById('m_mrating').value)||null,
+    video_url: document.getElementById('m_murl').value,
+    poster_url: document.getElementById('m_mposter').value
+  };
+  await api(id?`/api/admin/movies/${id}`:'/api/admin/movies',id?'PUT':'POST',body);
+  closeModal(); await loadMovies();
+}
+
+// SERIES
+let seriesFilter = null;
+async function loadSeries() {
+  allSeries = await api('/api/admin/series');
+  document.getElementById('serCount').textContent = allSeries.length;
+  const cats = [...new Set(allSeries.map(s=>s.category))];
+  document.getElementById('seriesFilters').innerHTML =
+    `<button class="${!seriesFilter?'active':''}" data-action="serFilter" data-cat="">All</button>`+
+    cats.map(c=>`<button class="${seriesFilter===c?'active':''}" data-action="serFilter" data-cat="${c}">${c}</button>`).join('');
+  renderSeries();
+}
+function renderSeries() {
+  const filtered = seriesFilter ? allSeries.filter(s=>s.category===seriesFilter) : allSeries;
+  document.getElementById('seriesTable').innerHTML = filtered.map(s=>`
+    <tr>
+      <td>${s.id}</td><td><strong>${s.title}</strong></td>
+      <td><span class="badge" style="background:#1e284420;color:#8899bb">${s.category}</span></td>
+      <td>${s.total_seasons}</td>
+      <td>${s.episode_count||0}</td>
+      <td>${s.year||'-'}</td>
+      <td>${s.rating?'⭐'+s.rating:'-'}</td>
+      <td><span class="badge ${s.is_active?'badge-active':'badge-inactive'}">${s.is_active?'Active':'Off'}</span></td>
+      <td>
+        <button class="btn btn-success btn-sm" data-action="showEpisodes" data-id="${s.id}">Episodes</button>
+        <button class="btn btn-primary btn-sm" data-action="editSeries" data-id="${s.id}">Edit</button>
+        <button class="btn btn-danger btn-sm" data-action="deleteSeries" data-id="${s.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+async function deleteSeries(id) { if(!confirm('Delete series and all episodes?'))return; await api(`/api/admin/series/${id}`,'DELETE'); document.getElementById('episodesPanel').innerHTML=''; await loadSeries(); }
+
+function openSeriesModal(id=null) {
+  const s = id ? allSeries.find(x=>x.id===id) : null;
+  const cats = ['drama','action','comedy','thriller','sci-fi','horror','arabic-series','documentary','animation'];
+  document.getElementById('modalContent').innerHTML = `
+    <h3>${s?'Edit Series':'Add Series'}</h3>
+    <label>Title</label><input id="m_stitle" value="${s?.title||''}">
+    <label>Description</label><textarea id="m_sdesc">${s?.description||''}</textarea>
+    <div class="form-row">
+      <div><label>Category</label><select id="m_scat">${cats.map(c=>`<option value="${c}" ${s?.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div><label>Total Seasons</label><input id="m_sseasons" type="number" value="${s?.total_seasons||1}" min="1"></div>
+    </div>
+    <div class="form-row">
+      <div><label>Year</label><input id="m_syear" type="number" value="${s?.year||2024}"></div>
+      <div><label>Rating</label><input id="m_srating" type="number" step="0.1" max="10" value="${s?.rating||''}"></div>
+    </div>
+    <label>Poster URL</label><input id="m_sposter" value="${s?.poster_url||''}" placeholder="Optional">
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-action="saveSeries" data-id="${s?.id||'null'}">${s?'Update':'Create'}</button>
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveSeries(id) {
+  const body = {
+    title: document.getElementById('m_stitle').value,
+    description: document.getElementById('m_sdesc').value,
+    category: document.getElementById('m_scat').value,
+    total_seasons: parseInt(document.getElementById('m_sseasons').value)||1,
+    year: parseInt(document.getElementById('m_syear').value)||null,
+    rating: parseFloat(document.getElementById('m_srating').value)||null,
+    poster_url: document.getElementById('m_sposter').value
+  };
+  await api(id?`/api/admin/series/${id}`:'/api/admin/series',id?'PUT':'POST',body);
+  closeModal(); await loadSeries();
+}
+
+// EPISODES
+let currentSeriesId = null, currentSeason = 1;
+async function showEpisodes(seriesId) {
+  currentSeriesId = seriesId;
+  currentSeason = 1;
+  const s = allSeries.find(x=>x.id===seriesId);
+  const episodes = await api(`/api/admin/series/${seriesId}/episodes`);
+
+  const seasons = [...new Set(episodes.map(e=>e.season))].sort((a,b)=>a-b);
+  if(seasons.length===0) seasons.push(1);
+
+  const panel = document.getElementById('episodesPanel');
+  panel.innerHTML = `
+    <div class="episodes-panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h4>📀 ${s.title} - Episodes</h4>
+        <button class="btn btn-primary btn-sm" data-action="addEpisode" data-id="${seriesId}">+ Add Episode</button>
+      </div>
+      <div class="season-tabs" id="seasonTabs">
+        ${seasons.map(sn=>`<button class="${sn===currentSeason?'active':''}" data-action="switchSeason" data-id="${sn}">${'Season '+sn}</button>`).join('')}
+      </div>
+      <div id="episodesList"></div>
+    </div>
+  `;
+
+  window._episodes = episodes;
+  renderEpisodes();
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function switchSeason(s) { currentSeason=s; document.querySelectorAll('.season-tabs button').forEach(b=>b.classList.toggle('active',b.textContent==='Season '+s)); renderEpisodes(); }
+
+function renderEpisodes() {
+  const eps = (window._episodes||[]).filter(e=>e.season===currentSeason).sort((a,b)=>a.episode_number-b.episode_number);
+  document.getElementById('episodesList').innerHTML = eps.length===0
+    ? '<div style="padding:20px;text-align:center;color:#5a6a8a">No episodes in this season</div>'
+    : eps.map(e=>`
+      <div class="episode-item">
+        <span>E${String(e.episode_number).padStart(2,'0')} - ${e.title} ${e.duration?'<span style="color:#5a6a8a">('+e.duration+'m)</span>':''}</span>
+        <span>
+          <button class="btn btn-primary btn-sm" data-action="editEpisode" data-id="${e.id}" data-sid="${currentSeriesId}">Edit</button>
+          <button class="btn btn-danger btn-sm" data-action="deleteEpisode" data-id="${e.id}">Delete</button>
+        </span>
+      </div>
+    `).join('');
+}
+
+function openEpisodeModal(seriesId, epId=null) {
+  const ep = epId ? (window._episodes||[]).find(e=>e.id===epId) : null;
+  document.getElementById('modalContent').innerHTML = `
+    <h3>${ep?'Edit Episode':'Add Episode'}</h3>
+    <label>Title</label><input id="m_eptitle" value="${ep?.title||''}">
+    <div class="form-row">
+      <div><label>Season</label><input id="m_epseason" type="number" value="${ep?.season||currentSeason}" min="1"></div>
+      <div><label>Episode #</label><input id="m_epnum" type="number" value="${ep?.episode_number||''}" min="1"></div>
+    </div>
+    <label>Video URL</label><input id="m_epurl" value="${ep?.video_url||''}" placeholder="http://...">
+    <label>Duration (min)</label><input id="m_epdur" type="number" value="${ep?.duration||''}">
+    <label>Description</label><textarea id="m_epdesc">${ep?.description||''}</textarea>
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-action="saveEpisode" data-id="${ep?.id||'null'}" data-sid="${seriesId}">${ep?'Update':'Create'}</button>
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveEpisode(seriesId, epId) {
+  const body = {
+    season: parseInt(document.getElementById('m_epseason').value)||1,
+    episode_number: parseInt(document.getElementById('m_epnum').value)||1,
+    title: document.getElementById('m_eptitle').value,
+    video_url: document.getElementById('m_epurl').value,
+    duration: parseInt(document.getElementById('m_epdur').value)||null,
+    description: document.getElementById('m_epdesc').value
+  };
+  if(epId) { await api(`/api/admin/episodes/${epId}`,'PUT',body); }
+  else { await api(`/api/admin/series/${seriesId}/episodes`,'POST',body); }
+  closeModal(); await showEpisodes(seriesId); await loadSeries();
+}
+
+async function deleteEpisode(id) {
+  if(!confirm('Delete episode?'))return;
+  await api(`/api/admin/episodes/${id}`,'DELETE');
+  await showEpisodes(currentSeriesId); await loadSeries();
+}
+
+// SUBSCRIPTIONS
+async function loadSubs() {
+  const subs = await api('/api/admin/subscriptions');
+  document.getElementById('subsGrid').innerHTML = subs.map((s,i)=>{
+    let features = []; try{features=JSON.parse(s.features||'[]')}catch(e){}
+    return `
+      <div class="sub-card ${i===3?'popular':''}">
+        ${i===3?'<div class="pop-badge">Most Popular</div>':''}
+        ${s.discount_percent>0?`<div class="discount">Save ${s.discount_percent}%</div>`:''}
+        <h4>${s.name}</h4>
+        <div style="color:#5a6a8a;font-size:12px">${s.name_ar||''}</div>
+        <div class="price">$${s.price}<span>/${s.duration_days}d</span></div>
+        <div class="duration">${s.quality} Quality | ${s.max_devices} Device(s)</div>
+        <ul class="features">${features.map(f=>`<li>${f}</li>`).join('')}</ul>
+      </div>
+    `;
+  }).join('');
+  document.getElementById('subsTable').innerHTML = subs.map(s=>`
+    <tr>
+      <td><strong>${s.name}</strong></td>
+      <td>${s.name_ar||'-'}</td>
+      <td>$${s.price}</td>
+      <td>${s.duration_days} days</td>
+      <td>${s.quality}</td>
+      <td>${s.max_devices}</td>
+      <td>${s.discount_percent>0?s.discount_percent+'%':'-'}</td>
+      <td>
+        <button class="btn btn-primary btn-sm" data-action="editSub" data-id="${s.id}">Edit</button>
+        <button class="btn btn-danger btn-sm" data-action="deleteSub" data-id="${s.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+  window._subs = subs;
+}
+
+function openSubModal(id=null) {
+  const s = id ? (window._subs||[]).find(x=>x.id===id) : null;
+  let features = []; try{features=JSON.parse(s?.features||'[]')}catch(e){}
+  document.getElementById('modalContent').innerHTML = `
+    <h3>${s?'Edit Plan':'Add Plan'}</h3>
+    <div class="form-row">
+      <div><label>Name (EN)</label><input id="m_subname" value="${s?.name||''}"></div>
+      <div><label>Name (AR)</label><input id="m_subnamear" value="${s?.name_ar||''}"></div>
+    </div>
+    <div class="form-row">
+      <div><label>Price ($)</label><input id="m_subprice" type="number" step="0.01" value="${s?.price||0}"></div>
+      <div><label>Duration (days)</label><input id="m_subdur" type="number" value="${s?.duration_days||30}"></div>
+    </div>
+    <div class="form-row">
+      <div><label>Max Devices</label><input id="m_subdev" type="number" value="${s?.max_devices||1}"></div>
+      <div><label>Quality</label><select id="m_subqual"><option value="SD" ${s?.quality==='SD'?'selected':''}>SD</option><option value="HD" ${s?.quality==='HD'?'selected':''}>HD</option><option value="FHD" ${s?.quality==='FHD'?'selected':''}>FHD</option><option value="4K" ${s?.quality==='4K'?'selected':''}>4K</option></select></div>
+    </div>
+    <label>Discount %</label><input id="m_subdisc" type="number" value="${s?.discount_percent||0}">
+    <label>Features (one per line)</label><textarea id="m_subfeat" style="height:100px">${features.join('\n')}</textarea>
+    <div class="modal-actions">
+      <button class="btn btn-primary" data-action="saveSub" data-id="${s?.id||'null'}">${s?'Update':'Create'}</button>
+      <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveSub(id) {
+  const featText = document.getElementById('m_subfeat').value;
+  const features = featText.split('\n').map(f=>f.trim()).filter(f=>f);
+  const body = {
+    name: document.getElementById('m_subname').value,
+    name_ar: document.getElementById('m_subnamear').value,
+    price: parseFloat(document.getElementById('m_subprice').value)||0,
+    duration_days: parseInt(document.getElementById('m_subdur').value)||30,
+    max_devices: parseInt(document.getElementById('m_subdev').value)||1,
+    quality: document.getElementById('m_subqual').value,
+    discount_percent: parseInt(document.getElementById('m_subdisc').value)||0,
+    features
+  };
+  await api(id?`/api/admin/subscriptions/${id}`:'/api/admin/subscriptions',id?'PUT':'POST',body);
+  closeModal(); await loadSubs();
+}
+
+async function deleteSub(id) { if(!confirm('Delete plan?'))return; await api(`/api/admin/subscriptions/${id}`,'DELETE'); await loadSubs(); }
+
+// M3U GENERATOR
+function generateM3U() {
+  const user = document.getElementById('m3u_user').value.trim();
+  const pass = document.getElementById('m3u_pass').value.trim();
+  if(!user || !pass) { alert('Enter username and password'); return; }
+  const base = window.location.origin;
+  document.getElementById('m3uLink').textContent = `${base}/get.php?username=${user}&password=${pass}&type=m3u_plus&output=ts`;
+  document.getElementById('m3uHost').textContent = base;
+  document.getElementById('m3uUser').textContent = user;
+  document.getElementById('m3uPass').textContent = pass;
+  document.getElementById('m3uResult').style.display = 'block';
+}
+
+// SECTIONS
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.getElementById('sec-'+name).classList.add('active');
+  document.querySelectorAll('.sidebar nav a').forEach(a=>a.classList.toggle('active',a.dataset.section===name));
+  if(name==='home') loadStats();
+  if(name==='users') loadUsers();
+  if(name==='channels') loadChannels();
+  if(name==='movies') loadMovies();
+  if(name==='series') { loadSeries(); document.getElementById('episodesPanel').innerHTML=''; }
+  if(name==='subs') loadSubs();
+  if(name==='restream') loadRestreams();
+  if(name==='settings') {
+    document.getElementById('settingsUrl').textContent = window.location.origin;
+    document.getElementById('settingsPort').textContent = window.location.port || '80';
+    document.getElementById('settingsPlayer').textContent = window.location.origin + '/player';
+  }
+}
+
+function closeModal() { document.getElementById('modalOverlay').classList.remove('show'); }
+
+// ===== RESTREAM =====
+async function loadRestreams() {
+  try {
+    const data = await api('/restream/streams');
+    document.getElementById('rsCount').textContent = data.running;
+    document.getElementById('rsTotalCount').textContent = data.total;
+    document.getElementById('rsRunningCount').textContent = data.running;
+    document.getElementById('rsStoppedCount').textContent = data.stopped;
+
+    const base = window.location.origin;
+    document.getElementById('rsTable').innerHTML = data.streams.length === 0
+      ? '<tr><td colspan="7" style="text-align:center;color:#5a6a8a;padding:30px">No restreams yet. Click "+ Add Stream" to start.</td></tr>'
+      : data.streams.map(s => `
+        <tr>
+          <td>
+            <span class="badge ${s.isRunning ? 'badge-active' : 'badge-inactive'}" style="font-size:10px">
+              ${s.isRunning ? '● LIVE' : (s.stats?.status === 'restarting' ? '↻ RETRY' : '○ OFF')}
+            </span>
+          </td>
+          <td><strong>${s.name}</strong></td>
+          <td><span class="badge" style="background:#1e284420;color:#8899bb">${s.category}</span></td>
+          <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:#5a6a8a" title="${s.url}">${s.url}</td>
+          <td style="font-size:11px">
+            <div><a href="${base}/hls/${s.id}/index.m3u8" target="_blank" style="color:#00ff88">HLS</a></div>
+            <div><a href="${base}/live/${s.id}" target="_blank" style="color:#00d4ff">MPEG-TS</a></div>
+          </td>
+          <td style="font-size:11px;color:#5a6a8a">
+            ${s.stats?.restarts ? '<span style="color:#ffa500">↻'+s.stats.restarts+'</span> ' : ''}
+            ${s.stats?.errors ? '<span style="color:#ff4757">✕'+s.stats.errors+'</span>' : ''}
+            ${!s.stats?.restarts && !s.stats?.errors ? '-' : ''}
+          </td>
+          <td style="white-space:nowrap">
+            ${s.isRunning
+              ? `<button class="btn btn-warning btn-sm" data-action="rsStop" data-id="${s.id}">Stop</button>`
+              : `<button class="btn btn-success btn-sm" data-action="rsStart" data-id="${s.id}">Start</button>`
+            }
+            <button class="btn btn-primary btn-sm" data-action="rsRestart" data-id="${s.id}">Restart</button>
+            <button class="btn btn-ghost btn-sm" data-action="rsLogs" data-id="${s.id}">Logs</button>
+            <button class="btn btn-danger btn-sm" data-action="rsDelete" data-id="${s.id}">Del</button>
+          </td>
+        </tr>
+      `).join('');
+  } catch(e) {
+    console.error('Load restreams error:', e);
+  }
+}
+
+async function addRestream() {
+  const name = document.getElementById('rs_name').value.trim();
+  const url = document.getElementById('rs_url').value.trim();
+  const category = document.getElementById('rs_cat').value.trim() || 'general';
+  const id = document.getElementById('rs_id').value.trim() || undefined;
+
+  if (!name || !url) { alert('Name and URL are required'); return; }
+
+  try {
+    await api('/restream/add-stream', 'POST', { name, url, category, id });
+    document.getElementById('rsAddForm').style.display = 'none';
+    document.getElementById('rs_name').value = '';
+    document.getElementById('rs_url').value = '';
+    document.getElementById('rs_id').value = '';
+    await loadRestreams();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function showRestreamLogs(id) {
+  try {
+    const data = await api(`/restream/stream/${id}/logs?lines=100`);
+    document.getElementById('rsLogContent').textContent = data.logs.join('\n') || 'No logs yet';
+    document.getElementById('rsLogs').style.display = 'block';
+    document.getElementById('rsLogs').scrollIntoView({ behavior: 'smooth' });
+  } catch(e) { alert('Error: ' + e.message); }
+}
+function copyText(t) { navigator.clipboard.writeText(t).then(()=>{ /* copied */ }); }
+
+if(token) { showDashboard().catch(()=>logout()); }
+document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')login();});
+
+// ===== Event Listeners (fix onclick not firing in some environments) =====
+document.getElementById('btnLogin').addEventListener('click', () => login());
+document.getElementById('btnLogout').addEventListener('click', () => logout());
+document.getElementById('btnAddUser').addEventListener('click', () => openUserModal());
+document.getElementById('btnAddChannel').addEventListener('click', () => openChannelModal());
+document.getElementById('btnBulkImport').addEventListener('click', () => openBulkImportModal());
+document.getElementById('btnAddMovie').addEventListener('click', () => openMovieModal());
+document.getElementById('btnUploadMedia').addEventListener('click', () => openUploadModal());
+document.getElementById('btnMediaLibrary').addEventListener('click', () => openMediaLibrary());
+document.getElementById('btnAddSeries').addEventListener('click', () => openSeriesModal());
+document.getElementById('btnAddSub').addEventListener('click', () => openSubModal());
+document.getElementById('btnAddRestream').addEventListener('click', () => {
+  document.getElementById('rsAddForm').style.display = 'block';
+  document.getElementById('rsAddForm').scrollIntoView({ behavior: 'smooth' });
+});
+
+// Global event delegation for dynamic onclick attributes
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
+  const sid = btn.dataset.sid;
+  e.preventDefault();
+  const numId = id ? parseInt(id) : null;
+  const numSid = sid ? parseInt(sid) : null;
+  switch(action) {
+    // Sidebar
+    case 'section': showSection(btn.dataset.section); break;
+    // Users
+    case 'editUser': openUserModal(numId); break;
+    case 'deleteUser': deleteUser(numId); break;
+    case 'toggleUser': toggleUser(numId, parseInt(btn.dataset.val)); break;
+    // Channels
+    case 'editChannel': openChannelModal(numId); break;
+    case 'deleteChannel': deleteChannel(numId); break;
+    case 'saveChannel': saveChannel(id==='null'?null:numId); break;
+    case 'chFilter': channelFilter=btn.dataset.cat||null; renderChannels(); break;
+    // Movies
+    case 'editMovie': openMovieModal(numId); break;
+    case 'deleteMovie': deleteMovie(numId); break;
+    case 'saveMovie': saveMovie(id==='null'?null:numId); break;
+    case 'mvFilter': movieFilter=btn.dataset.cat||null; renderMovies(); break;
+    // Series
+    case 'editSeries': openSeriesModal(numId); break;
+    case 'deleteSeries': deleteSeries(numId); break;
+    case 'saveSeries': saveSeries(id==='null'?null:numId); break;
+    case 'showEpisodes': showEpisodes(numId); break;
+    case 'serFilter': seriesFilter=btn.dataset.cat||null; renderSeries(); break;
+    // Episodes
+    case 'addEpisode': openEpisodeModal(numId); break;
+    case 'editEpisode': openEpisodeModal(numSid, numId); break;
+    case 'deleteEpisode': deleteEpisode(numId); break;
+    case 'saveEpisode': saveEpisode(numSid, id==='null'?null:numId); break;
+    case 'switchSeason': switchSeason(numId); break;
+    // Subs
+    case 'editSub': openSubModal(numId); break;
+    case 'deleteSub': deleteSub(numId); break;
+    case 'saveSub': saveSub(id==='null'?null:numId); break;
+    // Modal
+    case 'closeModal': closeModal(); break;
+    case 'saveUser': saveUser(id==='null'?null:numId); break;
+    // Misc
+    case 'copyText': {
+      const target = btn.dataset.target;
+      const text = target ? document.getElementById(target)?.textContent : btn.dataset.text;
+      if(text) copyText(text);
+      break;
+    }
+    case 'generateM3U': generateM3U(); break;
+    // Restream
+    case 'rsRefresh': loadRestreams(); break;
+    case 'rsSave': addRestream(); break;
+    case 'rsCancel': document.getElementById('rsAddForm').style.display='none'; break;
+    case 'rsCloseLogs': document.getElementById('rsLogs').style.display='none'; break;
+    case 'rsStart': api(`/restream/stream/${id}/start`,'POST').then(()=>loadRestreams()); break;
+    case 'rsStop': api(`/restream/stream/${id}/stop`,'POST').then(()=>loadRestreams()); break;
+    case 'rsRestart': api(`/restream/stream/${id}/restart`,'POST').then(()=>setTimeout(loadRestreams,1500)); break;
+    case 'rsDelete': if(confirm('Delete this restream?')) api(`/restream/stream/${id}`,'DELETE').then(()=>loadRestreams()); break;
+    case 'rsLogs': showRestreamLogs(id); break;
+    // Bulk import & Media
+    case 'doBulkImport': doBulkImport(); break;
+    case 'openUploadFromLib': openUploadModal(); break;
+    case 'copyUrl': {
+      const url = btn.dataset.url;
+      if(url) { navigator.clipboard.writeText(url).then(()=>{ btn.style.background='#0f5132'; setTimeout(()=>btn.style.background='',1000); }); }
+      break;
+    }
+  }
+});
+
+// Modal overlay close on click outside
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if(e.target === this) closeModal();
+});
+
+// ===== BULK IMPORT =====
+function openBulkImportModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h2>📋 Bulk Import Channels</h2>
+    <p style="color:#6a7a9a;margin-bottom:15px">Upload M3U file, paste M3U playlist, or use simple format: <code style="background:#1a2040;padding:2px 6px;border-radius:4px">name|category|stream_url</code></p>
+
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <label style="flex:1;min-width:120px;display:flex;align-items:center;gap:6px;padding:10px;background:#0a0f1a;border-radius:8px;cursor:pointer;border:2px solid #1a2040;font-size:13px">
+        <input type="radio" name="importFmt" value="auto" checked> Auto Detect
+      </label>
+      <label style="flex:1;min-width:80px;display:flex;align-items:center;gap:6px;padding:10px;background:#0a0f1a;border-radius:8px;cursor:pointer;border:2px solid #1a2040;font-size:13px">
+        <input type="radio" name="importFmt" value="m3u"> M3U
+      </label>
+      <label style="flex:1;min-width:80px;display:flex;align-items:center;gap:6px;padding:10px;background:#0a0f1a;border-radius:8px;cursor:pointer;border:2px solid #1a2040;font-size:13px">
+        <input type="radio" name="importFmt" value="simple"> Simple
+      </label>
+    </div>
+
+    <div id="m3uFileUpload" style="border:2px dashed #1a2040;border-radius:10px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px;transition:all 0.3s">
+      <span style="font-size:24px">📂</span>
+      <p style="color:#6a7a9a;font-size:13px;margin-top:5px">Drop M3U file here or click to browse</p>
+      <input type="file" id="m3uFileInput" accept=".m3u,.m3u8,.txt" style="display:none">
+    </div>
+
+    <textarea id="bulkContent" rows="12" style="width:100%;background:#080c14;border:1px solid #1a2040;color:#e0e0e0;padding:12px;border-radius:10px;font-family:monospace;font-size:12px;resize:vertical" placeholder="#EXTM3U
+#EXTINF:-1 tvg-logo=&quot;logo.png&quot; group-title=&quot;Sports&quot;,beIN Sports 1
+http://server:port/user/pass/12345
+#EXTINF:-1 group-title=&quot;News&quot;,Al Jazeera
+http://server:port/user/pass/12346
+
+--- OR simple format ---
+beIN Sports 1|sports|http://server:port/user/pass/12345
+Al Jazeera|news|http://server:port/user/pass/12346
+Channel Name|category|stream_url|logo_url|backup_url|backup_url2"></textarea>
+    <div id="importPreview" style="margin:12px 0;font-size:13px;color:#6a7a9a"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">
+      <button class="btn" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" data-action="doBulkImport">🚀 Import Channels</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+
+  // Preview on paste/type
+  function updatePreview() {
+    const lines = document.getElementById('bulkContent').value.trim().split('\n').filter(l => l.trim());
+    const isM3U = lines[0] && lines[0].includes('#EXTM3U');
+    let count = 0;
+    if (isM3U || lines.some(l => l.startsWith('#EXTINF:'))) {
+      count = lines.filter(l => l.startsWith('#EXTINF:')).length;
+    } else {
+      count = lines.filter(l => l.includes('|') || l.includes('http')).length;
+    }
+    document.getElementById('importPreview').textContent = count > 0 ? '📊 Found ~' + count + ' channels to import' : '';
+  }
+  document.getElementById('bulkContent').addEventListener('input', updatePreview);
+
+  // M3U file upload
+  const fileZone = document.getElementById('m3uFileUpload');
+  const fileInput = document.getElementById('m3uFileInput');
+  fileZone.addEventListener('click', () => fileInput.click());
+  fileZone.addEventListener('dragover', (e) => { e.preventDefault(); fileZone.style.borderColor = '#e94560'; });
+  fileZone.addEventListener('dragleave', () => { fileZone.style.borderColor = '#1a2040'; });
+  fileZone.addEventListener('drop', (e) => {
+    e.preventDefault(); fileZone.style.borderColor = '#1a2040';
+    if (e.dataTransfer.files[0]) readM3UFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) readM3UFile(fileInput.files[0]); });
+
+  function readM3UFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      document.getElementById('bulkContent').value = e.target.result;
+      fileZone.innerHTML = '<span style="font-size:20px">✅</span> <strong style="color:#00b894">' + file.name + '</strong> <span style="color:#6a7a9a">(' + (file.size/1024).toFixed(1) + ' KB)</span>';
+      updatePreview();
+    };
+    reader.readAsText(file);
+  }
+}
+
+async function doBulkImport() {
+  const content = document.getElementById('bulkContent').value;
+  if (!content.trim()) return alert('Paste channels first!');
+
+  const fmt = document.querySelector('input[name="importFmt"]:checked')?.value || 'auto';
+  const format = fmt === 'auto' ? (content.includes('#EXTM3U') || content.includes('#EXTINF:') ? 'm3u' : 'simple') : fmt;
+
+  try {
+    const result = await api('/api/admin/bulk-import', 'POST', { content, format });
+    alert('✅ ' + result.message);
+    closeModal();
+    loadChannels();
+  } catch (err) {
+    alert('❌ Import failed: ' + err.message);
+  }
+}
+
+// ===== MEDIA UPLOAD =====
+function openUploadModal() {
+  const cats = [...new Set(allMovies.map(m=>m.category))].filter(c=>c);
+  const catOptions = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+  document.getElementById('modalContent').innerHTML = `
+    <h2>📤 Upload Video</h2>
+    <p style="color:#6a7a9a;margin-bottom:15px">Upload video and auto-add as movie. Max 2GB.</p>
+
+    <div style="display:flex;gap:8px;margin-bottom:15px">
+      <label style="flex:1;display:flex;align-items:center;gap:6px;padding:10px;background:#0a0f1a;border-radius:8px;cursor:pointer;border:2px solid #e94560">
+        <input type="radio" name="uploadMode" value="movie" checked> 🎬 Add as Movie
+      </label>
+      <label style="flex:1;display:flex;align-items:center;gap:6px;padding:10px;background:#0a0f1a;border-radius:8px;cursor:pointer;border:2px solid #1a2040">
+        <input type="radio" name="uploadMode" value="file"> 📁 File Only
+      </label>
+    </div>
+
+    <div id="movieInfoFields" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:15px">
+      <div style="grid-column:1/-1">
+        <label style="font-size:11px;color:#6a7a9a;text-transform:uppercase">Movie Title</label>
+        <input type="text" id="upTitle" placeholder="Auto-detected from filename" style="width:100%;padding:10px;background:#080c14;border:1px solid #1a2040;border-radius:8px;color:#e0e0e0;font-size:14px">
+      </div>
+      <div>
+        <label style="font-size:11px;color:#6a7a9a;text-transform:uppercase">Category</label>
+        <select id="upCategory" style="width:100%;padding:10px;background:#080c14;border:1px solid #1a2040;border-radius:8px;color:#e0e0e0">
+          <option value="uploaded">uploaded</option>
+          <option value="action">action</option><option value="comedy">comedy</option>
+          <option value="drama">drama</option><option value="horror">horror</option>
+          <option value="sci-fi">sci-fi</option><option value="animation">animation</option>
+          <option value="arabic">arabic</option><option value="thriller">thriller</option>
+          ${catOptions}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;color:#6a7a9a;text-transform:uppercase">Year</label>
+        <input type="number" id="upYear" placeholder="2024" min="1900" max="2030" style="width:100%;padding:10px;background:#080c14;border:1px solid #1a2040;border-radius:8px;color:#e0e0e0">
+      </div>
+      <div style="grid-column:1/-1">
+        <label style="font-size:11px;color:#6a7a9a;text-transform:uppercase">Description</label>
+        <input type="text" id="upDesc" placeholder="Optional description" style="width:100%;padding:10px;background:#080c14;border:1px solid #1a2040;border-radius:8px;color:#e0e0e0">
+      </div>
+    </div>
+
+    <div id="uploadDropZone" style="border:2px dashed #1a2040;border-radius:12px;padding:35px;text-align:center;cursor:pointer;transition:all 0.3s;margin-bottom:15px">
+      <div style="font-size:40px;margin-bottom:8px">📁</div>
+      <p style="color:#6a7a9a">Drop files here or click to browse</p>
+      <p style="color:#4a5a7a;font-size:11px;margin-top:5px">mp4, mkv, avi, ts — up to 2GB</p>
+      <input type="file" id="uploadFileInput" multiple accept="video/*,image/*,.ts,.m3u8" style="display:none">
+    </div>
+    <div id="uploadProgress" style="display:none;margin-bottom:15px">
+      <div style="background:#1a2040;border-radius:8px;overflow:hidden;height:24px">
+        <div id="uploadBar" style="background:linear-gradient(90deg,#e94560,#ff6b81);height:100%;width:0%;transition:width 0.3s;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:bold;color:white"></div>
+      </div>
+      <p id="uploadStatus" style="color:#6a7a9a;font-size:12px;margin-top:5px"></p>
+    </div>
+    <div id="uploadResults"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:12px">
+      <button class="btn" data-action="closeModal">Close</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+
+  // Toggle movie fields
+  document.querySelectorAll('input[name="uploadMode"]').forEach(r => {
+    r.addEventListener('change', () => {
+      document.getElementById('movieInfoFields').style.display = r.value === 'movie' ? 'grid' : 'none';
+      r.closest('label').style.borderColor = '#e94560';
+      const other = [...document.querySelectorAll('input[name="uploadMode"]')].find(x => x !== r);
+      other.closest('label').style.borderColor = '#1a2040';
+    });
+  });
+
+  const dropZone = document.getElementById('uploadDropZone');
+  const fileInput = document.getElementById('uploadFileInput');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.borderColor = '#e94560'; dropZone.style.background = 'rgba(233,69,96,0.05)'; });
+  dropZone.addEventListener('dragleave', () => { dropZone.style.borderColor = '#1a2040'; dropZone.style.background = ''; });
+  dropZone.addEventListener('drop', (e) => { e.preventDefault(); dropZone.style.borderColor = '#1a2040'; dropZone.style.background = ''; handleUpload(e.dataTransfer.files); });
+  fileInput.addEventListener('change', () => handleUpload(fileInput.files));
+}
+
+async function handleUpload(files) {
+  if (!files.length) return;
+  const progress = document.getElementById('uploadProgress');
+  const bar = document.getElementById('uploadBar');
+  const status = document.getElementById('uploadStatus');
+  const results = document.getElementById('uploadResults');
+  progress.style.display = 'block';
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+    status.textContent = 'Uploading ' + (i+1) + '/' + files.length + ': ' + file.name + ' (' + sizeMB + ' MB)';
+    bar.style.width = '0%';
+    bar.textContent = '0%';
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    // Add movie info if in movie mode
+    const isMovieMode = document.querySelector('input[name="uploadMode"]:checked')?.value === 'movie';
+    if (isMovieMode && file.type.startsWith('video/')) {
+      formData.append('auto_add', 'true');
+      const titleEl = document.getElementById('upTitle');
+      formData.append('title', titleEl?.value || '');
+      formData.append('category', document.getElementById('upCategory')?.value || 'uploaded');
+      formData.append('year', document.getElementById('upYear')?.value || '');
+      formData.append('description', document.getElementById('upDesc')?.value || '');
+    }
+
+    try {
+      const xhr = new XMLHttpRequest();
+      const result = await new Promise((resolve, reject) => {
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round(e.loaded / e.total * 100);
+            bar.style.width = pct + '%';
+            bar.textContent = pct + '%';
+          }
+        };
+        xhr.onload = () => {
+          if (xhr.status === 200) resolve(JSON.parse(xhr.responseText));
+          else reject(new Error(xhr.statusText));
+        };
+        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.open('POST', API + '/api/admin/upload');
+        xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+        xhr.send(formData);
+      });
+
+      const movieBadge = result.movieId ? ' <span style="background:#e94560;padding:2px 8px;border-radius:4px;font-size:11px">🎬 Added as Movie #' + result.movieId + '</span>' : '';
+      results.innerHTML += '<div style="background:#0a2e1a;border:1px solid #0f5132;padding:10px;border-radius:8px;margin-bottom:8px;font-size:13px">' +
+        '✅ <strong>' + file.name + '</strong>' + movieBadge + '<br><code style="background:#1a2040;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:11px;margin-top:4px;display:inline-block" data-action="copyUrl" data-url="' + result.url + '">' + result.url + '</code>' +
+        '</div>';
+      if (result.movieId) loadMovies(); // Refresh movies list
+    } catch (err) {
+      results.innerHTML += '<div style="background:#2e0a0a;border:1px solid #5f1a1a;padding:10px;border-radius:8px;margin-bottom:8px;font-size:13px">' +
+        '❌ <strong>' + file.name + '</strong> - ' + err.message + '</div>';
+    }
+  }
+  status.textContent = 'Upload complete!';
+  bar.style.width = '100%';
+  bar.textContent = '100%';
+}
+
+// ===== MEDIA LIBRARY =====
+async function openMediaLibrary() {
+  document.getElementById('modalContent').innerHTML = '<h2>🎞️ Media Library</h2><p style="color:#6a7a9a">Loading...</p>';
+  document.getElementById('modalOverlay').classList.add('show');
+
+  try {
+    const files = await api('/api/admin/media');
+    const videos = files.filter(f => f.type === 'video');
+    const images = files.filter(f => f.type === 'image');
+
+    document.getElementById('modalContent').innerHTML = `
+      <h2>🎞️ Media Library (${files.length} files)</h2>
+      <div style="max-height:500px;overflow-y:auto">
+        ${videos.length > 0 ? '<h3 style="color:#e94560;margin:10px 0">🎬 Videos ('+videos.length+')</h3>' +
+          videos.map(f => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0a0f1a;border-radius:8px;margin-bottom:6px">' +
+            '<div style="flex:1;min-width:0"><div style="font-size:13px;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + f.filename + '</div>' +
+            '<div style="font-size:11px;color:#4a5a7a">' + (f.size/1024/1024).toFixed(1) + ' MB</div></div>' +
+            '<code style="background:#1a2040;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;margin:0 8px;flex-shrink:0" data-action="copyUrl" data-url="'+f.url+'">' + f.url + '</code>' +
+            '<button class="btn" style="font-size:11px;padding:4px 10px" data-action="deleteMedia" data-url="'+f.url+'">🗑️</button>' +
+          '</div>').join('') : '<p style="color:#4a5a7a">No videos uploaded yet</p>'}
+        ${images.length > 0 ? '<h3 style="color:#0984e3;margin:15px 0 10px">🖼️ Images ('+images.length+')</h3>' +
+          images.map(f => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:#0a0f1a;border-radius:8px;margin-bottom:6px">' +
+            '<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0"><img src="'+f.url+'" style="width:40px;height:30px;object-fit:cover;border-radius:4px">' +
+            '<div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + f.filename + '</div></div>' +
+            '<code style="background:#1a2040;padding:3px 8px;border-radius:4px;font-size:11px;cursor:pointer;margin:0 8px;flex-shrink:0" data-action="copyUrl" data-url="'+f.url+'">' + f.url + '</code>' +
+          '</div>').join('') : ''}
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:15px">
+        <button class="btn" style="background:#6c5ce7" data-action="openUploadFromLib">📤 Upload More</button>
+        <button class="btn" data-action="closeModal">Close</button>
+      </div>
+    `;
+  } catch (err) {
+    document.getElementById('modalContent').innerHTML = '<h2>🎞️ Media Library</h2><p style="color:#ff4757">Error: ' + err.message + '</p>';
+  }
+}
+</script>
+</body>
+</html>

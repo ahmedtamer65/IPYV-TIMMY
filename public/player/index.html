@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IPTV Player</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #080c14; color: #e0e0e0; min-height: 100vh; }
+    ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: #080c14; } ::-webkit-scrollbar-thumb { background: #2a3050; border-radius: 3px; }
+
+    /* Login - Xtream Style */
+    .login-page { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: radial-gradient(ellipse at center, #0d1525 0%, #080c14 70%); }
+    .login-card { background: #0f1525; padding: 36px; border-radius: 18px; width: 420px; box-shadow: 0 25px 80px rgba(0,0,0,0.6); border: 1px solid #1a2040; }
+    .login-card .logo { text-align: center; margin-bottom: 24px; }
+    .login-card .logo h1 { font-size: 30px; background: linear-gradient(135deg, #e94560, #ff6b81); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .login-card .logo p { color: #4a5a7a; font-size: 13px; margin-top: 4px; }
+    .login-card .tabs { display: flex; margin-bottom: 24px; border-radius: 10px; overflow: hidden; background: #080c14; }
+    .login-card .tabs button { flex: 1; padding: 10px; border: none; background: transparent; color: #4a5a7a; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .login-card .tabs button.active { background: #e94560; color: white; }
+    .input-group { margin-bottom: 14px; }
+    .input-group label { display: block; color: #4a5a7a; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+    .input-group input { width: 100%; padding: 12px 14px; border: 1px solid #1a2040; border-radius: 10px; background: #080c14; color: #e0e0e0; font-size: 14px; transition: border 0.2s; }
+    .input-group input:focus { outline: none; border-color: #e94560; }
+    .login-btn { width: 100%; padding: 13px; background: linear-gradient(135deg, #e94560, #c23152); color: white; border: none; border-radius: 10px; font-size: 15px; font-weight: bold; cursor: pointer; margin-top: 6px; }
+    .login-btn:hover { opacity: 0.9; }
+    .login-error { color: #ff4757; text-align: center; margin-bottom: 10px; display: none; font-size: 13px; }
+    .login-hint { text-align: center; margin-top: 16px; color: #4a5a7a; font-size: 12px; }
+    .login-hint a { color: #e94560; cursor: pointer; text-decoration: none; }
+
+    /* App */
+    .app { display: none; }
+
+    /* Top Bar */
+    .topbar { background: #0d1220; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 50; border-bottom: 1px solid #1a2040; }
+    .topbar .brand { font-size: 20px; font-weight: bold; background: linear-gradient(135deg, #e94560, #ff6b81); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .topbar .user-section { display: flex; align-items: center; gap: 14px; }
+    .topbar .user-section .info { font-size: 12px; color: #4a5a7a; }
+    .topbar .user-section .info strong { color: #e0e0e0; }
+    .topbar .badge { padding: 3px 10px; border-radius: 10px; font-size: 10px; font-weight: 700; }
+    .topbar button { background: none; border: 1px solid #1a2040; color: #6a7a9a; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 12px; }
+    .topbar button:hover { border-color: #e94560; color: #e94560; }
+
+    /* Navigation */
+    .nav { display: flex; background: #0a0f1a; border-bottom: 1px solid #1a2040; padding: 0 20px; }
+    .nav a { padding: 12px 20px; color: #4a5a7a; text-decoration: none; cursor: pointer; font-size: 14px; font-weight: 500; border-bottom: 2px solid transparent; transition: all 0.2s; }
+    .nav a:hover { color: #e0e0e0; }
+    .nav a.active { color: #e94560; border-bottom-color: #e94560; }
+
+    /* Content Area */
+    .content { padding: 20px; max-width: 1400px; margin: 0 auto; }
+
+    /* Player */
+    .player-area { display: none; background: #000; border-radius: 12px; overflow: hidden; margin-bottom: 20px; position: relative; max-width: 1000px; margin-left: auto; margin-right: auto; }
+    .player-area.show { display: block; }
+    .player-area video { width: 100%; max-height: 520px; display: block; background: #000; }
+    .player-area .close-btn { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.8); color: #fff; border: none; padding: 8px 14px; border-radius: 8px; cursor: pointer; z-index: 10; font-size: 13px; }
+    .player-meta { padding: 16px 0; max-width: 1000px; margin: 0 auto 20px; }
+    .player-meta h2 { margin-bottom: 6px; font-size: 20px; }
+    .player-meta p { color: #4a5a7a; font-size: 14px; }
+
+    /* Category Filter */
+    .cats { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .cats button { padding: 7px 16px; border-radius: 20px; border: 1px solid #1a2040; background: transparent; color: #4a5a7a; cursor: pointer; font-size: 12px; transition: all 0.2s; }
+    .cats button.active { background: linear-gradient(135deg, #e94560, #c23152); border-color: #e94560; color: white; }
+    .cats button:hover { border-color: #e94560; }
+
+    /* Grid */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
+
+    /* Card */
+    .card { background: #0f1525; border-radius: 12px; overflow: hidden; cursor: pointer; transition: all 0.25s; border: 1px solid #1a2040; }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(233,69,96,0.15); border-color: #e9456040; }
+    .card .thumb { height: 130px; background: linear-gradient(135deg, #0d1525 0%, #1a1a35 100%); display: flex; align-items: center; justify-content: center; font-size: 42px; position: relative; }
+    .card .thumb .live-badge { position: absolute; top: 8px; right: 8px; background: #e94560; color: white; padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; }
+    .card .thumb .rating { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); color: #ffa500; padding: 2px 8px; border-radius: 4px; font-size: 11px; }
+    .card .body { padding: 12px; }
+    .card .body h3 { font-size: 14px; margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card .body .meta { color: #4a5a7a; font-size: 11px; display: flex; justify-content: space-between; }
+
+    /* Series Detail View */
+    .series-detail { display: none; }
+    .series-detail.show { display: block; }
+    .series-header { display: flex; gap: 24px; margin-bottom: 24px; background: #0f1525; border-radius: 12px; padding: 20px; border: 1px solid #1a2040; }
+    .series-header .poster { width: 180px; height: 250px; background: linear-gradient(135deg, #0d1525, #1a1a35); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 64px; flex-shrink: 0; }
+    .series-header .info h2 { font-size: 24px; margin-bottom: 8px; }
+    .series-header .info .tags { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+    .series-header .info .tags span { padding: 3px 10px; background: #1a2040; border-radius: 6px; font-size: 11px; color: #8899bb; }
+    .series-header .info p { color: #6a7a9a; font-size: 14px; line-height: 1.6; }
+    .series-header .back-btn { color: #e94560; cursor: pointer; font-size: 14px; margin-bottom: 8px; display: inline-block; }
+
+    .season-selector { display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap; }
+    .season-selector button { padding: 8px 18px; border-radius: 8px; border: 1px solid #1a2040; background: transparent; color: #6a7a9a; cursor: pointer; font-size: 13px; }
+    .season-selector button.active { background: #e94560; border-color: #e94560; color: white; }
+
+    .ep-list { }
+    .ep-item { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: #0f1525; border: 1px solid #1a2040; border-radius: 10px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; }
+    .ep-item:hover { border-color: #e94560; background: #12182a; }
+    .ep-item .ep-num { background: #1a2040; color: #e94560; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 14px; flex-shrink: 0; }
+    .ep-item .ep-info h4 { font-size: 14px; margin-bottom: 2px; }
+    .ep-item .ep-info span { color: #4a5a7a; font-size: 12px; }
+    .ep-item .play-icon { margin-right: auto; color: #e94560; font-size: 20px; opacity: 0; transition: opacity 0.2s; }
+    .ep-item:hover .play-icon { opacity: 1; }
+
+    /* Profile */
+    .profile-box { max-width: 500px; margin: 0 auto; background: #0f1525; border: 1px solid #1a2040; border-radius: 14px; padding: 28px; }
+    .profile-box h2 { color: #e94560; margin-bottom: 20px; font-size: 20px; }
+    .profile-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #1a2040; font-size: 14px; }
+    .profile-row:last-child { border-bottom: none; }
+    .profile-row .label { color: #4a5a7a; }
+
+    .badge-trial { background: #ffa50020; color: #ffa500; }
+    .badge-monthly { background: #00d4ff20; color: #00d4ff; }
+    .badge-6months { background: #00ff8820; color: #00ff88; }
+    .badge-yearly { background: #e9456020; color: #e94560; }
+
+    .no-content { text-align: center; padding: 60px 20px; color: #4a5a7a; }
+    .no-content .icon { font-size: 56px; margin-bottom: 12px; opacity: 0.5; }
+
+    .cat-names { 'bein-sports': 'beIN Sports', 'bein-premium': 'beIN Premium' }
+
+    @media(max-width:768px) {
+      .grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+      .series-header { flex-direction: column; }
+      .series-header .poster { width: 100%; height: 200px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN PAGE -->
+<div class="login-page" id="loginPage">
+  <div class="login-card">
+    <div class="logo">
+      <h1>IPTV Player</h1>
+      <p>Stream Channels, Movies & Series</p>
+    </div>
+
+    <div class="tabs" id="loginTabs">
+      <button class="active" data-act="loginTab" data-tab="xtream">Xtream Login</button>
+      <button data-act="loginTab" data-tab="direct">Direct Login</button>
+      <button data-act="loginTab" data-tab="register">Register</button>
+    </div>
+
+    <div class="login-error" id="loginError"></div>
+
+    <!-- Xtream Login -->
+    <div id="tab-xtream">
+      <div class="input-group"><label>Server URL (Host)</label><input id="xt_host" placeholder="http://your-server.com" value=""></div>
+      <div class="input-group"><label>Username</label><input id="xt_user" placeholder="Username"></div>
+      <div class="input-group"><label>Password</label><input id="xt_pass" type="password" placeholder="Password"></div>
+      <button class="login-btn" id="btn-xtream">Connect</button>
+      <div class="login-hint">Connect using Xtream Codes API</div>
+    </div>
+
+    <!-- Direct Login -->
+    <div id="tab-direct" style="display:none">
+      <div class="input-group"><label>Username</label><input id="d_user" placeholder="Username"></div>
+      <div class="input-group"><label>Password</label><input id="d_pass" type="password" placeholder="Password"></div>
+      <button class="login-btn" id="btn-direct">Login</button>
+    </div>
+
+    <!-- Register -->
+    <div id="tab-register" style="display:none">
+      <div class="input-group"><label>Username</label><input id="r_user" placeholder="Choose username"></div>
+      <div class="input-group"><label>Password</label><input id="r_pass" type="password" placeholder="Min 4 characters"></div>
+      <button class="login-btn" id="btn-register">Create Account</button>
+      <div class="login-hint">Free trial - 3 days</div>
+    </div>
+  </div>
+</div>
+
+<!-- APP -->
+<div class="app" id="app">
+  <div class="topbar">
+    <div class="brand">IPTV Player</div>
+    <div class="user-section">
+      <div class="info">
+        <strong id="dispUser"></strong>
+        <span class="badge" id="dispSub"></span>
+      </div>
+      <button data-act="profile">Profile</button>
+      <button data-act="logout">Logout</button>
+    </div>
+  </div>
+
+  <div class="nav" id="mainNav">
+    <a class="active" data-act="showTab" data-tab="live">📺 Live TV</a>
+    <a data-act="showTab" data-tab="movies">🎬 Movies</a>
+    <a data-act="showTab" data-tab="series">📀 Series</a>
+  </div>
+
+  <!-- Player Area -->
+  <div style="max-width:1400px;margin:0 auto;padding:0 20px">
+    <div class="player-area" id="playerArea">
+      <button class="close-btn" data-act="closePlayer">✕ Close</button>
+      <video id="videoPlayer" controls autoplay></video>
+    </div>
+    <div class="player-meta" id="playerMeta" style="display:none">
+      <h2 id="playerTitle"></h2>
+      <p id="playerDesc"></p>
+    </div>
+  </div>
+
+  <!-- Search Bar -->
+  <div style="max-width:1400px;margin:8px auto;padding:0 20px">
+    <div style="position:relative">
+      <input type="text" id="globalSearch" placeholder="🔍 Search channels, movies, series..." style="width:100%;padding:12px 16px 12px 16px;background:#0d1220;border:1px solid #1a2040;border-radius:12px;color:#e0e0e0;font-size:14px;outline:none;transition:border 0.2s" onfocus="this.style.borderColor='#e94560'" onblur="this.style.borderColor='#1a2040'">
+      <div id="searchResults" style="display:none;position:absolute;top:100%;left:0;right:0;background:#0d1220;border:1px solid #1a2040;border-radius:0 0 12px 12px;max-height:400px;overflow-y:auto;z-index:100;box-shadow:0 15px 40px rgba(0,0,0,0.6)"></div>
+    </div>
+  </div>
+
+  <div class="content">
+    <!-- LIVE TV -->
+    <div id="tab-live">
+      <div class="cats" id="liveCats"></div>
+      <div class="grid" id="liveGrid"></div>
+    </div>
+
+    <!-- MOVIES -->
+    <div id="tab-movies" style="display:none">
+      <div class="cats" id="movieCats"></div>
+      <div class="grid" id="movieGrid"></div>
+    </div>
+
+    <!-- SERIES -->
+    <div id="tab-series" style="display:none">
+      <div class="series-detail" id="seriesDetail"></div>
+      <div id="seriesListView">
+        <div class="cats" id="seriesCats"></div>
+        <div class="grid" id="seriesGrid"></div>
+      </div>
+    </div>
+
+    <!-- PROFILE -->
+    <div id="tab-profile" style="display:none">
+      <div class="profile-box" id="profileBox"></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.js"></script>
+<script>
+let serverUrl = '';
+let token = null;
+let channels=[], movies=[], series=[];
+let loginMode = 'xtream'; // xtream or direct
+let xtreamCredentials = null; // {host, username, password}
+
+const catLabels = {
+  'bein-sports':'beIN Sports','bein-premium':'beIN Premium','bein-movies':'beIN Movies','bein-entertainment':'beIN Entertainment',
+  'news':'News','sports':'Sports','entertainment':'Entertainment','movies-channels':'Movies Channels',
+  'kids':'Kids','music':'Music','documentary':'Documentary','religious':'Religious','general':'General',
+  'action':'Action','comedy':'Comedy','drama':'Drama','horror':'Horror','sci-fi':'Sci-Fi',
+  'animation':'Animation','arabic':'Arabic','thriller':'Thriller','romance':'Romance',
+  'arabic-series':'Arabic Series'
+};
+const catIcons = {
+  'bein-sports':'⚽','bein-premium':'🏆','bein-movies':'🎬','bein-entertainment':'🎭',
+  'news':'📰','sports':'🏅','entertainment':'📺','movies-channels':'🎬',
+  'kids':'🧸','music':'🎵','documentary':'🌍','religious':'🕌','general':'📺',
+  'action':'💥','comedy':'😂','drama':'🎭','horror':'👻','sci-fi':'🚀',
+  'animation':'🎨','arabic':'🌙','thriller':'🔪','romance':'💕',
+  'arabic-series':'🌙'
+};
+
+// Save/Load session
+function saveSession() {
+  const data = { serverUrl, token, loginMode, xtreamCredentials };
+  localStorage.setItem('iptv_session', JSON.stringify(data));
+}
+function loadSession() {
+  try {
+    const data = JSON.parse(localStorage.getItem('iptv_session'));
+    if (data) { serverUrl = data.serverUrl||''; token = data.token; loginMode = data.loginMode||'xtream'; xtreamCredentials = data.xtreamCredentials; return true; }
+  } catch(e) {}
+  return false;
+}
+
+// LOGIN
+function switchLoginTab(tab) {
+  ['xtream','direct','register'].forEach(t => document.getElementById('tab-'+t).style.display = t===tab?'block':'none');
+  document.querySelectorAll('#loginTabs button').forEach((b,i) => b.classList.toggle('active', ['xtream','direct','register'][i]===tab));
+  document.getElementById('loginError').style.display = 'none';
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg; el.style.display = 'block';
+}
+
+// Xtream Login (Host + Username + Password)
+async function xtreamLogin() {
+  try {
+    let host = document.getElementById('xt_host').value.trim();
+    const user = document.getElementById('xt_user').value.trim();
+    const pass = document.getElementById('xt_pass').value;
+    if(!host || !user || !pass) return showLoginError('All fields are required');
+    // Clean host URL - remove trailing paths like /player_api.php, /get.php etc
+    host = host.replace(/\/(player_api\.php|get\.php|xmltv\.php|panel_api\.php).*$/i, '');
+    if(host.endsWith('/')) host = host.slice(0,-1);
+    if(!host.startsWith('http')) host = 'http://' + host;
+
+    const res = await fetch(`${host}/player_api.php?username=${encodeURIComponent(user)}&password=${encodeURIComponent(pass)}`);
+    const ct = res.headers.get('content-type')||'';
+    if(!ct.includes('json')) throw new Error('Server did not return JSON. Check the host URL.');
+    const data = await res.json();
+    if(!data.user_info || data.user_info.auth !== 1) throw new Error(data.user_info?.message || 'Invalid credentials');
+
+    serverUrl = host;
+    loginMode = 'xtream';
+    xtreamCredentials = { host, username: user, password: pass };
+    token = null;
+    saveSession();
+    startApp(data.user_info);
+  } catch(e) { showLoginError(e.message); }
+}
+
+// Direct Login
+async function directLogin() {
+  try {
+    const user = document.getElementById('d_user').value.trim();
+    const pass = document.getElementById('d_pass').value;
+    if(!user || !pass) return showLoginError('Username and password required');
+
+    serverUrl = '';
+    const res = await fetch(serverUrl+'/api/auth/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username:user, password:pass})
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error);
+
+    token = data.token;
+    loginMode = 'direct';
+    xtreamCredentials = null;
+    saveSession();
+    startApp(data.user);
+  } catch(e) { showLoginError(e.message); }
+}
+
+// Register
+async function registerUser() {
+  try {
+    const user = document.getElementById('r_user').value.trim();
+    const pass = document.getElementById('r_pass').value;
+    if(!user || !pass) return showLoginError('All fields required');
+    if(pass.length < 4) return showLoginError('Password min 4 chars');
+
+    const res = await fetch('/api/auth/register', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username:user, password:pass})
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error);
+
+    token = data.token;
+    loginMode = 'direct';
+    serverUrl = '';
+    saveSession();
+    startApp(data.user);
+  } catch(e) { showLoginError(e.message); }
+}
+
+function playerLogout() {
+  localStorage.removeItem('iptv_session');
+  token = null; xtreamCredentials = null;
+  document.getElementById('loginPage').style.display = 'flex';
+  document.getElementById('app').style.display = 'none';
+  closePlayer();
+}
+
+// API Helper
+async function api(path) {
+  if (loginMode === 'xtream' && xtreamCredentials) {
+    const {host, username, password} = xtreamCredentials;
+    const url = `${host}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}&${path}`;
+    const res = await fetch(url);
+    return res.json();
+  } else {
+    const res = await fetch(serverUrl + '/api/content/' + path, {
+      headers: { 'Authorization': 'Bearer ' + token }
+    });
+    if(!res.ok) { if(res.status===401) playerLogout(); throw new Error('Auth failed'); }
+    return res.json();
+  }
+}
+
+// START APP
+async function startApp(userInfo) {
+  document.getElementById('loginPage').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('dispUser').textContent = userInfo.username || '';
+  const sub = userInfo.subscription || userInfo.sub || 'trial';
+  const badge = document.getElementById('dispSub');
+  badge.textContent = sub;
+  badge.className = 'badge badge-' + sub;
+
+  // Auto-fill host
+  if(!document.getElementById('xt_host').value) {
+    document.getElementById('xt_host').value = window.location.origin;
+  }
+
+  await loadAllContent();
+}
+
+async function loadAllContent() {
+  try {
+    // If no valid login method, try direct API with server URL
+    if (loginMode === 'xtream' && xtreamCredentials && xtreamCredentials.host) {
+      // Xtream API
+      const [chData, mvData, serData] = await Promise.all([
+        api('action=get_live_streams'),
+        api('action=get_vod_streams'),
+        api('action=get_series')
+      ]);
+      channels = (Array.isArray(chData) ? chData : []).map(c => ({
+        id: c.stream_id, name: c.name, category: c.category_name||'general',
+        stream_url: c.direct_source||'', logo_url: c.stream_icon||'',
+        backup_url: c.backup_url||'', backup_url2: c.backup_url2||''
+      }));
+      movies = (Array.isArray(mvData) ? mvData : []).map(m => ({
+        id: m.stream_id, title: m.name, category: m.category_name||'general',
+        video_url: m.direct_source||'', poster_url: m.stream_icon||'',
+        backup_url: m.backup_url||'', backup_url2: m.backup_url2||'',
+        description: m.plot||'', rating: m.rating||0, year: m.year||'',
+        duration: m.duration_secs ? Math.round(m.duration_secs/60) : 0
+      }));
+      series = (Array.isArray(serData) ? serData : []).map(s => ({
+        id: s.series_id, title: s.name, category: s.category_name||s.genre||'',
+        poster_url: s.cover||'', description: s.plot||'', rating: s.rating||0,
+        year: s.releaseDate||'', episode_count: s.episode_count||0
+      }));
+    } else if (token) {
+      // Direct API
+      const base = serverUrl || window.location.origin;
+      const [chData, mvData, serData] = await Promise.all([
+        fetch(base+'/api/content/channels',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.json()),
+        fetch(base+'/api/content/movies',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.json()),
+        fetch(base+'/api/content/series',{headers:{'Authorization':'Bearer '+token}}).then(r=>r.json())
+      ]);
+      channels = Array.isArray(chData) ? chData : [];
+      movies = Array.isArray(mvData) ? mvData : [];
+      series = Array.isArray(serData) ? serData : [];
+    } else {
+      // Fallback - no valid session, logout
+      console.error('No valid session for loading content');
+      playerLogout();
+      return;
+    }
+
+    console.log(`Loaded: ${channels.length} channels, ${movies.length} movies, ${series.length} series`);
+    renderLive();
+    renderMoviesList();
+    renderSeriesList();
+  } catch(e) {
+    console.error('Failed to load content:', e);
+    // Show error to user
+    document.getElementById('liveGrid').innerHTML = '<div style="text-align:center;padding:40px;color:#ff4757">Failed to load. <a href="#" data-act="retry" style="color:#00d4ff">Retry</a></div>';
+  }
+}
+
+// LIVE TV
+let liveFilter = null;
+function renderLive() {
+  const cats = [...new Set(channels.map(c=>c.category))];
+  document.getElementById('liveCats').innerHTML =
+    `<button class="${!liveFilter?'active':''}" data-act="liveFilter" data-cat="">All (${channels.length})</button>`+
+    cats.map(c=>`<button class="${liveFilter===c?'active':''}" data-act="liveFilter" data-cat="${c}">${catIcons[c]||'📺'} ${catLabels[c]||c} (${channels.filter(ch=>ch.category===c).length})</button>`).join('');
+
+  const filtered = liveFilter ? channels.filter(c=>c.category===liveFilter) : channels;
+  if(!filtered.length) {
+    document.getElementById('liveGrid').innerHTML = '<div class="no-content"><div class="icon">📺</div><p>No channels</p></div>';
+    return;
+  }
+  const movieChannelCard = !liveFilter ? `
+    <div class="card" data-act="movieChannel" style="border:1px solid #e94560;background:linear-gradient(135deg,#1a0520,#0f1525);cursor:pointer">
+      <div class="thumb" style="background:linear-gradient(135deg,#e94560,#8b1a30);font-size:40px;">🎬<div class="live-badge" style="background:#e94560;">24/7</div></div>
+      <div class="body">
+        <h3 style="color:#e94560;">24/7 Movies Channel</h3>
+        <div class="meta"><span>Auto-cycling movies non-stop</span></div>
+      </div>
+    </div>
+  ` : '';
+  document.getElementById('liveGrid').innerHTML = movieChannelCard + filtered.map(c=>`
+    <div class="card" data-act="playLive" data-id="${c.id}" style="cursor:pointer">
+      <div class="thumb">${c.logo_url ? `<img src="${c.logo_url}" style="width:50px;height:50px;object-fit:contain;" onerror="this.style.display='none'">` : ''}${catIcons[c.category]||'📺'}<div class="live-badge">LIVE</div></div>
+      <div class="body">
+        <h3>${c.name}</h3>
+        <div class="meta"><span>${catLabels[c.category]||c.category}</span></div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// MOVIES
+let movieListFilter = null;
+function renderMoviesList() {
+  const cats = [...new Set(movies.map(m=>m.category))];
+  document.getElementById('movieCats').innerHTML =
+    `<button class="${!movieListFilter?'active':''}" data-act="movieFilter" data-cat="">All (${movies.length})</button>`+
+    cats.map(c=>`<button class="${movieListFilter===c?'active':''}" data-act="movieFilter" data-cat="${c}">${catIcons[c]||'🎬'} ${catLabels[c]||c}</button>`).join('');
+
+  const filtered = movieListFilter ? movies.filter(m=>m.category===movieListFilter) : movies;
+  if(!filtered.length) {
+    document.getElementById('movieGrid').innerHTML = '<div class="no-content"><div class="icon">🎬</div><p>No movies</p></div>';
+    return;
+  }
+  document.getElementById('movieGrid').innerHTML = filtered.map(m=>`
+    <div class="card" data-act="playMovie" data-id="${m.id}" style="cursor:pointer">
+      <div class="thumb">${catIcons[m.category]||'🎬'}
+        ${m.rating?`<div class="rating">⭐ ${m.rating}</div>`:''}
+      </div>
+      <div class="body">
+        <h3>${m.title}</h3>
+        <div class="meta">
+          <span>${catLabels[m.category]||m.category}</span>
+          <span>${m.year||''} ${m.duration?'| '+m.duration+'m':''}</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// SERIES
+let seriesListFilter = null;
+function renderSeriesList() {
+  document.getElementById('seriesDetail').classList.remove('show');
+  document.getElementById('seriesDetail').innerHTML = '';
+  document.getElementById('seriesListView').style.display = 'block';
+
+  const cats = [...new Set(series.map(s=>s.category))];
+  document.getElementById('seriesCats').innerHTML =
+    `<button class="${!seriesListFilter?'active':''}" data-act="seriesFilter" data-cat="">All (${series.length})</button>`+
+    cats.map(c=>`<button class="${seriesListFilter===c?'active':''}" data-act="seriesFilter" data-cat="${c}">${catIcons[c]||'📀'} ${catLabels[c]||c}</button>`).join('');
+
+  const filtered = seriesListFilter ? series.filter(s=>s.category===seriesListFilter) : series;
+  if(!filtered.length) {
+    document.getElementById('seriesGrid').innerHTML = '<div class="no-content"><div class="icon">📀</div><p>No series</p></div>';
+    return;
+  }
+  document.getElementById('seriesGrid').innerHTML = filtered.map(s=>`
+    <div class="card" data-act="openSeries" data-id="${s.id}" style="cursor:pointer">
+      <div class="thumb">${catIcons[s.category]||'📀'}
+        ${s.rating?`<div class="rating">⭐ ${s.rating}</div>`:''}
+      </div>
+      <div class="body">
+        <h3>${s.title}</h3>
+        <div class="meta">
+          <span>${catLabels[s.category]||s.category}</span>
+          <span>${s.episode_count||0} ep ${s.year?'| '+s.year:''}</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// Open Series Detail
+async function openSeries(id) {
+  try {
+    let seriesInfo, seasons;
+
+    if (loginMode === 'xtream') {
+      const data = await api(`action=get_series_info&series_id=${id}`);
+      seriesInfo = data.info || {};
+      seasons = {};
+      if(data.episodes) {
+        Object.keys(data.episodes).forEach(sn => {
+          seasons[sn] = data.episodes[sn].map(ep => ({
+            id: ep.id, episode_number: ep.episode_num, title: ep.title,
+            duration: ep.info?.duration_secs ? Math.round(ep.info.duration_secs/60) : 0,
+            video_url: ep.direct_source||'', backup_url: ep.backup_url||'', backup_url2: ep.backup_url2||'',
+            description: ep.info?.plot||''
+          }));
+        });
+      }
+    } else {
+      const data = await api(`series/${id}/episodes`);
+      seriesInfo = data.series;
+      seasons = data.seasons;
+    }
+
+    const s = series.find(x=>x.id===id) || seriesInfo;
+    const seasonNums = Object.keys(seasons).sort((a,b)=>a-b);
+    const firstSeason = seasonNums[0] || '1';
+
+    document.getElementById('seriesListView').style.display = 'none';
+    const detail = document.getElementById('seriesDetail');
+    detail.classList.add('show');
+
+    detail.innerHTML = `
+      <div class="series-header">
+        <div class="poster">${catIcons[s.category||seriesInfo.genre]||'📀'}</div>
+        <div class="info">
+          <a class="back-btn" data-act="backSeries" style="cursor:pointer">← Back to Series</a>
+          <h2>${s.title||seriesInfo.name||''}</h2>
+          <div class="tags">
+            <span>${catLabels[s.category||seriesInfo.genre]||s.category||seriesInfo.genre||''}</span>
+            ${s.year||seriesInfo.releaseDate?`<span>${s.year||seriesInfo.releaseDate}</span>`:''}
+            ${s.rating||seriesInfo.rating?`<span>⭐ ${s.rating||seriesInfo.rating}</span>`:''}
+            <span>${Object.values(seasons).reduce((sum,eps)=>sum+eps.length,0)} episodes</span>
+          </div>
+          <p>${s.description||seriesInfo.plot||''}</p>
+        </div>
+      </div>
+      <div class="season-selector" id="seasonSelector">
+        ${seasonNums.map(sn=>`<button class="${sn===firstSeason?'active':''}" data-act="showSeason" data-id="${sn}">Season ${sn}</button>`).join('')}
+      </div>
+      <div class="ep-list" id="epList"></div>
+    `;
+
+    window._seriesSeasons = seasons;
+    window._seriesTitle = s.title||seriesInfo.name||'';
+    showSeason(parseInt(firstSeason));
+  } catch(e) {
+    console.error('Failed to load series:', e);
+  }
+}
+
+function showSeason(sn) {
+  document.querySelectorAll('.season-selector button').forEach(b => b.classList.toggle('active', b.textContent === 'Season '+sn));
+  const eps = window._seriesSeasons[sn] || [];
+  document.getElementById('epList').innerHTML = eps.length === 0
+    ? '<div class="no-content"><p>No episodes in this season</p></div>'
+    : eps.map(ep => `
+      <div class="ep-item" data-act="playEp" data-series="${escape(window._seriesTitle)}" data-epnum="${ep.episode_number}" data-eptitle="${escape(ep.title)}" data-url="${escape(ep.video_url||'')}" data-backup="${escape(ep.backup_url||'')}" data-backup2="${escape(ep.backup_url2||'')}" data-desc="${escape(ep.description||'')}" style="cursor:pointer">
+        <div class="ep-num">${ep.episode_number}</div>
+        <div class="ep-info">
+          <h4>${ep.title}</h4>
+          <span>${ep.duration?ep.duration+' min':''}</span>
+        </div>
+        <div class="play-icon">▶</div>
+      </div>
+    `).join('');
+}
+
+function escape(s) { return (s||'').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+// PLAYER
+function playLive(id) {
+  const ch = channels.find(c=>c.id===id);
+  if(!ch) return;
+  // Store backup URLs for fallback
+  window._currentBackups = [ch.backup_url, ch.backup_url2].filter(u => u);
+  window._currentBackupIndex = 0;
+  playVideo(ch.stream_url||'', ch.name, 'Live - '+(catLabels[ch.category]||ch.category));
+}
+
+function playMovie(id) {
+  const m = movies.find(x=>x.id===id);
+  if(!m) return;
+  window._currentBackups = [m.backup_url, m.backup_url2].filter(u => u);
+  window._currentBackupIndex = 0;
+  playVideo(m.video_url||'', m.title, m.description || m.category);
+}
+
+function playEpisode(seriesTitle, epNum, epTitle, url, desc, backup, backup2) {
+  window._currentBackups = [unescape(backup||''), unescape(backup2||'')].filter(u => u);
+  window._currentBackupIndex = 0;
+  playVideo(unescape(url), unescape(seriesTitle)+' - E'+epNum+': '+unescape(epTitle), unescape(desc));
+}
+
+// 24/7 Movie Channel
+async function playMovieChannel() {
+  window._currentBackups = [];
+  try {
+    const res = await fetch((serverUrl||window.location.origin) + '/api/movie-channel');
+    const data = await res.json();
+    if (data.current) {
+      window._movieChannelPlaylist = data.playlist;
+      window._movieChannelIndex = data.playlist.findIndex(m => m.is_playing);
+      playVideo(data.current.video_url, '🎬 24/7 Movies - ' + data.current.title, data.current.category + ' | ' + (data.current.year||''));
+      // Auto-play next movie when current ends
+      const video = document.getElementById('videoPlayer');
+      video.onended = () => playNextMovie();
+    }
+  } catch(e) { console.error('Movie channel error:', e); }
+}
+
+function playNextMovie() {
+  if (!window._movieChannelPlaylist) return;
+  window._movieChannelIndex = ((window._movieChannelIndex || 0) + 1) % window._movieChannelPlaylist.length;
+  const next = window._movieChannelPlaylist[window._movieChannelIndex];
+  if (next) playVideo(next.video_url, '🎬 24/7 Movies - ' + next.title, next.category);
+}
+
+function tryBackupUrl(title, desc) {
+  if (window._currentBackups && window._currentBackupIndex < window._currentBackups.length) {
+    const backupUrl = window._currentBackups[window._currentBackupIndex];
+    window._currentBackupIndex++;
+    console.log('Trying backup URL #' + window._currentBackupIndex + ':', backupUrl);
+    playVideo(backupUrl, title + ' (Backup)', desc);
+    return true;
+  }
+  return false;
+}
+
+function playVideo(url, title, desc) {
+  const video = document.getElementById('videoPlayer');
+  const area = document.getElementById('playerArea');
+
+  // Stop current players
+  if(window._hls) { window._hls.destroy(); window._hls = null; }
+  if(window._mpegts) { window._mpegts.destroy(); window._mpegts = null; }
+  video.pause(); video.removeAttribute('src'); video.load();
+  video.onended = null;
+
+  if(!url) {
+    document.getElementById('playerTitle').textContent = title;
+    document.getElementById('playerDesc').textContent = 'No stream URL - Add URL from Admin Panel';
+    document.getElementById('playerMeta').style.display = 'block';
+    area.classList.add('show');
+    window.scrollTo({top:0, behavior:'smooth'});
+    return;
+  }
+
+  // Detect stream type
+  const isHLS = url.includes('.m3u8');
+  const isMpegTS = url.match(/:\d+\/[^.]+$/) || url.endsWith('.ts'); // Xtream format or .ts
+  const isMp4 = url.includes('.mp4');
+
+  if(isHLS && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    // HLS via hls.js
+    const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+    hls.loadSource(url);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, ()=>video.play().catch(()=>{}));
+    hls.on(Hls.Events.ERROR, (e, data) => {
+      if(data.fatal) {
+        console.warn('HLS error, trying backup...', data.type);
+        hls.destroy();
+        window._hls = null;
+        if(!tryBackupUrl(title, desc)) {
+          document.getElementById('playerDesc').textContent = 'Stream failed - No backup available';
+        }
+      }
+    });
+    window._hls = hls;
+  } else if(isHLS && video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Safari native HLS
+    video.src = url;
+    video.play().catch(()=>{});
+  } else if(!isMp4 && typeof mpegts !== 'undefined' && mpegts.isSupported()) {
+    // MPEG-TS / Xtream streams via mpegts.js - route external URLs through proxy
+    const isExternal = url.startsWith('http://') || url.startsWith('https://');
+    const streamUrl = isExternal ? '/proxy/stream?url=' + encodeURIComponent(url) : url;
+    console.log('Using mpegts.js for:', url, isExternal ? '(via proxy)' : '(direct)');
+    const player = mpegts.createPlayer({
+      type: 'mpegts',
+      isLive: true,
+      hasAudio: true,
+      hasVideo: true,
+      url: streamUrl
+    }, {
+      enableWorker: false,
+      enableStashBuffer: true,
+      stashInitialSize: 384 * 1024,  // 384KB initial buffer for smooth playback
+      lazyLoad: false,
+      deferLoadAfterSourceOpen: false,
+      liveBufferLatencyChasing: true,
+      liveBufferLatencyMaxLatency: 10,  // allow up to 10s buffer
+      liveBufferLatencyMinRemain: 3,    // keep at least 3s buffered
+      autoCleanupSourceBuffer: true,
+      autoCleanupMaxBackwardDuration: 30,
+      autoCleanupMinBackwardDuration: 15
+    });
+    player.attachMediaElement(video);
+    player.load();
+    player.play().catch(()=>{});
+    player.on(mpegts.Events.ERROR, (type, detail, info) => {
+      console.warn('mpegts error:', type, detail);
+      player.destroy();
+      window._mpegts = null;
+      if(!tryBackupUrl(title, desc)) {
+        document.getElementById('playerDesc').textContent = 'Stream error - trying backup...';
+      }
+    });
+    // Auto-reconnect if loading completes unexpectedly (stream dropped)
+    player.on(mpegts.Events.LOADING_COMPLETE, () => {
+      console.log('Stream loading complete - reconnecting in 3s...');
+      setTimeout(() => {
+        if(window._mpegts === player) {
+          player.destroy();
+          window._mpegts = null;
+          playVideo(url, title.replace(' (Reconnecting)', ''), desc);
+        }
+      }, 3000);
+    });
+    window._mpegts = player;
+  } else {
+    // Fallback: direct (mp4, webm, etc.)
+    video.src = url;
+    video.play().catch(()=>{});
+  }
+
+  document.getElementById('playerTitle').textContent = title;
+  document.getElementById('playerDesc').textContent = desc;
+  document.getElementById('playerMeta').style.display = 'block';
+  area.classList.add('show');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+function closePlayer() {
+  if(window._hls) { window._hls.destroy(); window._hls = null; }
+  if(window._mpegts) { window._mpegts.destroy(); window._mpegts = null; }
+  const video = document.getElementById('videoPlayer');
+  video.pause(); video.removeAttribute('src'); video.load();
+  document.getElementById('playerArea').classList.remove('show');
+  document.getElementById('playerMeta').style.display = 'none';
+}
+
+// TABS
+function showTab(name) {
+  closePlayer();
+  ['live','movies','series','profile'].forEach(t => {
+    const el = document.getElementById('tab-'+t);
+    if(el) el.style.display = t===name?'block':'none';
+  });
+  document.querySelectorAll('.nav a').forEach(a => a.classList.toggle('active', a.dataset.tab===name));
+  if(name==='profile') loadProfile();
+  if(name==='series') renderSeriesList();
+}
+
+async function loadProfile() {
+  try {
+    let profile;
+    if(loginMode==='xtream') {
+      const data = await api('');
+      profile = data.user_info;
+      document.getElementById('profileBox').innerHTML = `
+        <h2>My Profile</h2>
+        <div class="profile-row"><span class="label">Username</span><span>${profile.username}</span></div>
+        <div class="profile-row"><span class="label">Status</span><span class="badge badge-active">${profile.status}</span></div>
+        <div class="profile-row"><span class="label">Subscription</span><span class="badge badge-${profile.subscription}">${profile.subscription}</span></div>
+        <div class="profile-row"><span class="label">Quality</span><span>${profile.quality||'SD'}</span></div>
+        <div class="profile-row"><span class="label">Expires</span><span>${profile.exp_date||'Unlimited'}</span></div>
+        <div class="profile-row"><span class="label">Max Connections</span><span>${profile.max_connections||1}</span></div>
+        <div class="profile-row"><span class="label">Created</span><span>${profile.created_at||'-'}</span></div>
+        <div class="profile-row"><span class="label">Server</span><span style="color:#00d4ff">${xtreamCredentials?.host||'-'}</span></div>
+      `;
+    } else {
+      profile = await api('profile');
+      document.getElementById('profileBox').innerHTML = `
+        <h2>My Profile</h2>
+        <div class="profile-row"><span class="label">Username</span><span>${profile.username}</span></div>
+        <div class="profile-row"><span class="label">Subscription</span><span class="badge badge-${profile.subscription}">${profile.subscription}</span></div>
+        <div class="profile-row"><span class="label">Expires</span><span>${profile.expires_at||'Unlimited'}</span></div>
+        <div class="profile-row"><span class="label">Max Connections</span><span>${profile.max_connections||1}</span></div>
+        <div class="profile-row"><span class="label">Created</span><span>${profile.created_at||'-'}</span></div>
+        <div class="profile-row"><span class="label">Last Login</span><span>${profile.last_login||'-'}</span></div>
+      `;
+    }
+  } catch(e) { console.error(e); }
+}
+
+// Auto-fill host
+document.getElementById('xt_host').value = window.location.origin;
+
+// Fix button clicks
+document.getElementById('btn-xtream').addEventListener('click', (e) => { e.preventDefault(); xtreamLogin(); });
+document.getElementById('btn-direct').addEventListener('click', (e) => { e.preventDefault(); directLogin(); });
+document.getElementById('btn-register').addEventListener('click', (e) => { e.preventDefault(); registerUser(); });
+
+// Enter key support
+document.getElementById('xt_pass')?.addEventListener('keydown', e => { if(e.key==='Enter') xtreamLogin(); });
+document.getElementById('d_pass')?.addEventListener('keydown', e => { if(e.key==='Enter') directLogin(); });
+document.getElementById('r_pass')?.addEventListener('keydown', e => { if(e.key==='Enter') registerUser(); });
+
+// Auto-login from saved session
+if(loadSession()) {
+  if(loginMode==='xtream' && xtreamCredentials && xtreamCredentials.host) {
+    fetch(`${xtreamCredentials.host}/player_api.php?username=${encodeURIComponent(xtreamCredentials.username)}&password=${encodeURIComponent(xtreamCredentials.password)}`)
+      .then(r => {
+        const ct = r.headers.get('content-type')||'';
+        if(!ct.includes('json')) throw new Error('Server returned non-JSON');
+        return r.json();
+      })
+      .then(data=>{
+        if(data.user_info?.auth===1) {
+          serverUrl = xtreamCredentials.host;
+          startApp(data.user_info);
+        }
+        else playerLogout();
+      })
+      .catch(()=>playerLogout());
+  } else if(token) {
+    fetch((serverUrl||window.location.origin)+'/api/content/profile',{headers:{'Authorization':'Bearer '+token}})
+      .then(r=>{if(!r.ok)throw new Error();return r.json()})
+      .then(u=>startApp(u))
+      .catch(()=>playerLogout());
+  } else {
+    // Session corrupted, show login
+    playerLogout();
+  }
+} else {
+  document.getElementById('loginPage').style.display = 'flex';
+}
+
+// ===== Global Event Delegation for all onclick =====
+document.addEventListener('click', function(e) {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  e.preventDefault();
+  const act = el.dataset.act;
+  const id = el.dataset.id;
+  switch(act) {
+    case 'loginTab': switchLoginTab(el.dataset.tab); break;
+    case 'showTab': showTab(el.dataset.tab); break;
+    case 'profile': showTab('profile'); break;
+    case 'logout': playerLogout(); break;
+    case 'closePlayer': closePlayer(); break;
+    case 'playLive': playLive(parseInt(id)); break;
+    case 'playMovie': playMovie(parseInt(id)); break;
+    case 'openSeries': openSeries(parseInt(id)); break;
+    case 'movieChannel': playMovieChannel(); break;
+    case 'backSeries': renderSeriesList(); break;
+    case 'showSeason': showSeason(parseInt(id)); break;
+    case 'liveFilter': liveFilter = el.dataset.cat || null; renderLive(); break;
+    case 'movieFilter': movieListFilter = el.dataset.cat || null; renderMoviesList(); break;
+    case 'seriesFilter': seriesListFilter = el.dataset.cat || null; renderSeriesList(); break;
+    case 'retry': loadAllContent(); break;
+    case 'playEp':
+      playEpisode(
+        el.dataset.series||'',
+        parseInt(el.dataset.epnum||0),
+        el.dataset.eptitle||'',
+        el.dataset.url||'',
+        el.dataset.desc||'',
+        el.dataset.backup||'',
+        el.dataset.backup2||''
+      );
+      break;
+  }
+});
+
+// ===== #5 GLOBAL SEARCH =====
+document.getElementById('globalSearch').addEventListener('input', function() {
+  const q = this.value.trim().toLowerCase();
+  const box = document.getElementById('searchResults');
+  if (q.length < 2) { box.style.display = 'none'; return; }
+
+  const results = [];
+  // Search channels
+  channels.filter(c => c.name.toLowerCase().includes(q) || (c.category||'').toLowerCase().includes(q)).slice(0, 8).forEach(c => {
+    results.push({ type: 'live', icon: catIcons[c.category]||'📺', title: c.name, sub: catLabels[c.category]||c.category, id: c.id, badge: 'LIVE', badgeColor: '#e94560' });
+  });
+  // Search movies
+  movies.filter(m => m.title.toLowerCase().includes(q) || (m.category||'').toLowerCase().includes(q) || (m.description||'').toLowerCase().includes(q)).slice(0, 8).forEach(m => {
+    results.push({ type: 'movie', icon: '🎬', title: m.title, sub: (m.year||'') + ' • ' + (m.category||'') + (m.rating ? ' • ⭐'+m.rating : ''), id: m.id, badge: 'VOD', badgeColor: '#6c5ce7' });
+  });
+  // Search series
+  series.filter(s => s.title.toLowerCase().includes(q) || (s.category||'').toLowerCase().includes(q) || (s.description||'').toLowerCase().includes(q)).slice(0, 8).forEach(s => {
+    results.push({ type: 'series', icon: '📀', title: s.title, sub: (s.category||'') + (s.rating ? ' • ⭐'+s.rating : ''), id: s.id, badge: 'SERIES', badgeColor: '#00b894' });
+  });
+
+  if (!results.length) {
+    box.innerHTML = '<div style="padding:20px;text-align:center;color:#4a5a7a">No results for "' + q + '"</div>';
+  } else {
+    box.innerHTML = results.map(r => `
+      <div data-act="searchClick" data-type="${r.type}" data-id="${r.id}" style="display:flex;align-items:center;gap:12px;padding:10px 16px;cursor:pointer;border-bottom:1px solid #1a2040;transition:background 0.15s" onmouseover="this.style.background='#1a2040'" onmouseout="this.style.background=''">
+        <span style="font-size:22px;width:32px;text-align:center">${r.icon}</span>
+        <div style="flex:1;min-width:0"><div style="font-size:14px;color:#e0e0e0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.title}</div><div style="font-size:11px;color:#4a5a7a">${r.sub}</div></div>
+        <span style="padding:3px 8px;border-radius:6px;font-size:10px;font-weight:700;background:${r.badgeColor};color:white">${r.badge}</span>
+      </div>
+    `).join('');
+  }
+  box.style.display = 'block';
+});
+
+// Close search on click outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#globalSearch') && !e.target.closest('#searchResults')) {
+    document.getElementById('searchResults').style.display = 'none';
+  }
+});
+
+// Handle search result clicks
+document.getElementById('searchResults').addEventListener('click', (e) => {
+  const item = e.target.closest('[data-act="searchClick"]');
+  if (!item) return;
+  const type = item.dataset.type;
+  const id = parseInt(item.dataset.id);
+  document.getElementById('searchResults').style.display = 'none';
+  document.getElementById('globalSearch').value = '';
+  if (type === 'live') { showTab('live'); playLive(id); }
+  else if (type === 'movie') { showTab('movies'); playMovie(id); }
+  else if (type === 'series') { showTab('series'); showSeriesDetail(id); }
+});
+</script>
+</body>
+</html>
