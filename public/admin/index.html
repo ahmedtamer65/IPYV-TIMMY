@@ -139,6 +139,9 @@
       <a data-action="section" data-section="series"><span class="icon">📀</span> Series</a>
       <a data-action="section" data-section="subs"><span class="icon">💳</span> Subscriptions</a>
       <a data-action="section" data-section="restream"><span class="icon">📡</span> Restream</a>
+      <a data-action="section" data-section="security"><span class="icon">🛡️</span> Security</a>
+      <a data-action="section" data-section="servers"><span class="icon">🖥️</span> Load Balancing</a>
+      <a data-action="section" data-section="autoimport"><span class="icon">🔄</span> Auto-Import</a>
       <a data-action="section" data-section="settings"><span class="icon">⚙️</span> Settings</a>
     </nav>
     <div class="logout-btn" id="btnLogout">🚪 Logout</div>
@@ -309,6 +312,89 @@
           <pre id="rsLogContent" style="background:#0a0e1a;padding:14px;border-radius:8px;font-size:11px;color:#8899bb;max-height:300px;overflow-y:auto;white-space:pre-wrap"></pre>
         </div>
       </div>
+    </div>
+
+    <!-- SECURITY (Anti-Piracy) -->
+    <div class="section" id="sec-security">
+      <div class="page-header"><h2>Security & Anti-Piracy</h2></div>
+
+      <!-- Active Connections -->
+      <div class="card-section" style="margin-bottom:20px">
+        <div class="card-header">
+          <h3>Active Streaming Connections</h3>
+          <button class="btn btn-success" onclick="loadSecurity()">Refresh</button>
+        </div>
+        <div id="activeConnsInfo" style="padding:16px;color:#5a6a8a">Loading...</div>
+        <div id="activeConnsTable"></div>
+      </div>
+
+      <!-- Suspicious Activity -->
+      <div class="card-section" style="margin-bottom:20px">
+        <div class="card-header">
+          <h3>Suspicious Activity</h3>
+          <span id="suspiciousCount" class="badge" style="background:#ff4757;color:#fff;padding:3px 10px;border-radius:12px;font-size:12px">0</span>
+        </div>
+        <div id="suspiciousTable"></div>
+      </div>
+
+      <!-- Audit Log -->
+      <div class="card-section" style="margin-bottom:20px">
+        <div class="card-header">
+          <h3>Audit Log</h3>
+          <div style="display:flex;gap:8px">
+            <select id="auditRiskFilter" style="background:#0a0e1a;color:#e0e0e0;border:1px solid #1e2844;border-radius:6px;padding:6px 10px;font-size:12px">
+              <option value="">All Levels</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+            <button class="btn btn-success" onclick="loadAuditLog()">Load</button>
+          </div>
+        </div>
+        <div style="max-height:400px;overflow-y:auto">
+          <table><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Details</th><th>IP</th><th>Risk</th></tr></thead>
+          <tbody id="auditLogBody"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOAD BALANCING -->
+    <div class="section" id="sec-servers">
+      <div class="page-header">
+        <h2>Load Balancing - Server Pool</h2>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" onclick="openAddServerModal()">+ Add Server</button>
+          <button class="btn btn-success" onclick="healthCheckAll()">Health Check All</button>
+        </div>
+      </div>
+
+      <div class="stats" id="serverStats">
+        <div class="stat-card"><div class="number" id="srvTotal">0</div><div class="label">Total Servers</div></div>
+        <div class="stat-card"><div class="number" id="srvHealthy">0</div><div class="label">Healthy</div></div>
+        <div class="stat-card"><div class="number" id="srvDown">0</div><div class="label">Down</div></div>
+      </div>
+
+      <div class="card-section">
+        <table><thead><tr><th>Status</th><th>Name</th><th>URL</th><th>Region</th><th>Load</th><th>Priority</th><th>Last Check</th><th>Actions</th></tr></thead>
+        <tbody id="serversTable"><tr><td colspan="8" style="text-align:center;color:#5a6a8a;padding:30px">No servers configured</td></tr></tbody></table>
+      </div>
+
+      <div id="healthCheckResult" style="display:none;margin-top:16px;padding:16px;background:#141828;border-radius:12px;border:1px solid #1e2844"></div>
+    </div>
+
+    <!-- AUTO-IMPORT -->
+    <div class="section" id="sec-autoimport">
+      <div class="page-header">
+        <h2>Auto-Import Sources</h2>
+        <button class="btn btn-primary" onclick="openAddSourceModal()">+ Add Source</button>
+      </div>
+
+      <div class="card-section">
+        <table><thead><tr><th>Status</th><th>Name</th><th>URL</th><th>Type</th><th>Auto Update</th><th>Interval</th><th>Last Import</th><th>Channels</th><th>Actions</th></tr></thead>
+        <tbody id="importSourcesTable"><tr><td colspan="9" style="text-align:center;color:#5a6a8a;padding:30px">No import sources</td></tr></tbody></table>
+      </div>
+
+      <div id="importResult" style="display:none;margin-top:16px;padding:16px;background:#141828;border-radius:12px;border:1px solid #1e2844"></div>
     </div>
 
     <!-- SETTINGS -->
@@ -912,6 +998,256 @@ function generateM3U() {
   document.getElementById('m3uResult').style.display = 'block';
 }
 
+// ===== LOAD BALANCING (#16) =====
+async function loadServers() {
+  try {
+    const servers = await api('/api/admin/servers');
+    document.getElementById('srvTotal').textContent = servers.length;
+    document.getElementById('srvHealthy').textContent = servers.filter(s => s.health_status === 'healthy' || s.health_status === 'unknown').length;
+    document.getElementById('srvDown').textContent = servers.filter(s => s.health_status === 'down' || s.health_status === 'timeout').length;
+
+    document.getElementById('serversTable').innerHTML = servers.length === 0
+      ? '<tr><td colspan="8" style="text-align:center;color:#5a6a8a;padding:30px">No servers configured. Add servers to enable load balancing.</td></tr>'
+      : servers.map(s => `<tr>
+        <td><span class="badge ${s.is_active ? 'badge-active' : 'badge-inactive'}" style="font-size:10px">${
+          s.health_status === 'healthy' ? '● Healthy' : s.health_status === 'down' ? '✕ Down' : s.health_status === 'timeout' ? '⏱ Timeout' : s.health_status === 'degraded' ? '⚠ Degraded' : '? Unknown'
+        }</span></td>
+        <td><strong>${s.name}</strong></td>
+        <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;color:#5a6a8a">${s.url}</td>
+        <td><span class="badge" style="background:#1e2844;color:#8899bb">${s.region}</span></td>
+        <td><span style="color:${s.current_load > s.max_connections * 0.8 ? '#ff4757' : '#00ff88'}">${s.current_load}</span>/${s.max_connections}</td>
+        <td>${s.priority}</td>
+        <td style="font-size:11px;color:#5a6a8a">${s.last_check ? new Date(s.last_check).toLocaleString() : 'Never'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-danger btn-sm" onclick="deleteServer(${s.id})">Delete</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) { console.error('Load servers error:', e); }
+}
+
+function openAddServerModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h2>+ Add Server</h2>
+    <p style="color:#6a7a9a;margin-bottom:15px">Add a server to the load balancing pool</p>
+    <input id="srv_name" class="search-box" placeholder="Server Name (e.g. EU Server 1)" style="width:100%;margin-bottom:10px">
+    <input id="srv_url" class="search-box" placeholder="Server URL (e.g. http://192.168.1.100:3500)" style="width:100%;margin-bottom:10px">
+    <div style="display:flex;gap:10px;margin-bottom:10px">
+      <input id="srv_region" class="search-box" placeholder="Region" value="default" style="flex:1">
+      <input id="srv_max" class="search-box" type="number" placeholder="Max Connections" value="100" style="flex:1">
+      <input id="srv_priority" class="search-box" type="number" placeholder="Priority" value="0" style="flex:1">
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" onclick="addServer()">Add Server</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function addServer() {
+  const name = document.getElementById('srv_name').value.trim();
+  const url = document.getElementById('srv_url').value.trim();
+  if (!name || !url) return alert('Name and URL required');
+  await api('/api/admin/servers', 'POST', {
+    name, url,
+    region: document.getElementById('srv_region').value.trim(),
+    max_connections: parseInt(document.getElementById('srv_max').value) || 100,
+    priority: parseInt(document.getElementById('srv_priority').value) || 0
+  });
+  closeModal();
+  loadServers();
+}
+
+async function deleteServer(id) {
+  if (!confirm('Delete this server?')) return;
+  await api('/api/admin/servers/' + id, 'DELETE');
+  loadServers();
+}
+
+async function healthCheckAll() {
+  const btn = event.target;
+  btn.textContent = 'Checking...';
+  btn.disabled = true;
+  try {
+    const result = await api('/api/admin/servers/health-check', 'POST');
+    document.getElementById('healthCheckResult').style.display = 'block';
+    document.getElementById('healthCheckResult').innerHTML = `
+      <h4 style="color:#00d4ff;margin-bottom:10px">Health Check Results</h4>
+      ${result.results.map(r => `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid #1e2844">
+        <span style="color:${r.status==='healthy'?'#00ff88':r.status==='degraded'?'#ffa500':'#ff4757'}">${r.status === 'healthy' ? '●' : r.status === 'degraded' ? '⚠' : '✕'} ${r.status}</span>
+        <strong>${r.name}</strong>
+        <span style="color:#5a6a8a">${r.latency}</span>
+      </div>`).join('')}`;
+    loadServers();
+  } catch(e) { alert('Health check failed: ' + e.message); }
+  btn.textContent = 'Health Check All';
+  btn.disabled = false;
+}
+
+// ===== AUTO-IMPORT (#17) =====
+async function loadImportSources() {
+  try {
+    const sources = await api('/api/admin/import-sources');
+    document.getElementById('importSourcesTable').innerHTML = sources.length === 0
+      ? '<tr><td colspan="9" style="text-align:center;color:#5a6a8a;padding:30px">No import sources. Add M3U URLs to auto-import channels.</td></tr>'
+      : sources.map(s => `<tr>
+        <td><span class="badge ${s.is_active ? 'badge-active' : 'badge-inactive'}" style="font-size:10px">${s.is_active ? '● Active' : '○ Off'}</span></td>
+        <td><strong>${s.name}</strong></td>
+        <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;color:#5a6a8a" title="${s.url}">${s.url}</td>
+        <td><span class="badge" style="background:#1e2844;color:#8899bb">${s.type}</span></td>
+        <td>${s.auto_update ? '<span style="color:#00ff88">Yes</span>' : '<span style="color:#5a6a8a">No</span>'}</td>
+        <td>${s.update_interval}h</td>
+        <td style="font-size:11px;color:#5a6a8a">${s.last_import ? new Date(s.last_import).toLocaleString() : 'Never'}</td>
+        <td>${s.channels_count}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-success btn-sm" onclick="fetchSource(${s.id})">Fetch Now</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteSource(${s.id})">Del</button>
+        </td>
+      </tr>`).join('');
+  } catch(e) { console.error('Load sources error:', e); }
+}
+
+function openAddSourceModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h2>+ Add Import Source</h2>
+    <p style="color:#6a7a9a;margin-bottom:15px">Add M3U URL to auto-import channels. Existing channels will be updated, not duplicated.</p>
+    <input id="isrc_name" class="search-box" placeholder="Source Name (e.g. Provider 1)" style="width:100%;margin-bottom:10px">
+    <input id="isrc_url" class="search-box" placeholder="M3U URL (e.g. http://provider.com/get.php?...)" style="width:100%;margin-bottom:10px">
+    <div style="display:flex;gap:10px;margin-bottom:10px">
+      <select id="isrc_type" style="flex:1;background:#0a0e1a;color:#e0e0e0;border:1px solid #1e2844;border-radius:8px;padding:10px">
+        <option value="m3u">M3U / M3U8</option>
+        <option value="xtream">Xtream API</option>
+      </select>
+      <input id="isrc_interval" class="search-box" type="number" placeholder="Update every (hours)" value="24" style="flex:1">
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:15px;cursor:pointer">
+      <input type="checkbox" id="isrc_auto"> Auto-update on interval
+    </label>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" onclick="addSource()">Add Source</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function addSource() {
+  const name = document.getElementById('isrc_name').value.trim();
+  const url = document.getElementById('isrc_url').value.trim();
+  if (!name || !url) return alert('Name and URL required');
+  await api('/api/admin/import-sources', 'POST', {
+    name, url,
+    type: document.getElementById('isrc_type').value,
+    auto_update: document.getElementById('isrc_auto').checked,
+    update_interval: parseInt(document.getElementById('isrc_interval').value) || 24
+  });
+  closeModal();
+  loadImportSources();
+}
+
+async function deleteSource(id) {
+  if (!confirm('Delete this source?')) return;
+  await api('/api/admin/import-sources/' + id, 'DELETE');
+  loadImportSources();
+}
+
+async function fetchSource(id) {
+  const resultDiv = document.getElementById('importResult');
+  resultDiv.style.display = 'block';
+  resultDiv.innerHTML = '<span style="color:#ffa500">Fetching channels from source...</span>';
+  try {
+    const result = await api('/api/admin/import-sources/' + id + '/fetch', 'POST');
+    resultDiv.innerHTML = `<span style="color:#00ff88">${result.message}</span>`;
+    loadImportSources();
+    loadChannels();
+  } catch(e) {
+    resultDiv.innerHTML = `<span style="color:#ff4757">Fetch failed: ${e.message}</span>`;
+  }
+}
+
+// SECURITY / ANTI-PIRACY
+async function loadSecurity() {
+  loadActiveConnections();
+  loadSuspicious();
+  loadAuditLog();
+}
+
+async function loadActiveConnections() {
+  try {
+    const data = await api('/api/admin/connections');
+    document.getElementById('activeConnsInfo').innerHTML = `
+      <div style="display:flex;gap:20px;flex-wrap:wrap">
+        <div><span style="color:#00d4ff;font-size:24px;font-weight:bold">${data.total}</span> <span style="color:#5a6a8a">active streams</span></div>
+        <div><span style="color:#00ff88;font-size:24px;font-weight:bold">${data.users.length}</span> <span style="color:#5a6a8a">users streaming</span></div>
+      </div>`;
+
+    if (data.users.length === 0) {
+      document.getElementById('activeConnsTable').innerHTML = '<div style="padding:20px;text-align:center;color:#5a6a8a">No active connections</div>';
+      return;
+    }
+
+    document.getElementById('activeConnsTable').innerHTML = `<table><thead><tr><th>User</th><th>Plan</th><th>Active / Max</th><th>Details</th></tr></thead><tbody>${
+      data.users.map(u => `<tr>
+        <td><strong style="color:#00d4ff">${u.username}</strong></td>
+        <td><span class="badge" style="background:#1e2844;color:#8899bb">${u.subscription}</span></td>
+        <td><span style="color:${u.activeConnections >= u.maxConnections ? '#ff4757' : '#00ff88'}">${u.activeConnections}</span> / ${u.maxConnections}</td>
+        <td style="font-size:11px;color:#5a6a8a">${u.connections.map(c => `${c.streamType}:${c.streamId} (${c.ip})`).join('<br>')}</td>
+      </tr>`).join('')
+    }</tbody></table>`;
+  } catch(e) {
+    document.getElementById('activeConnsInfo').innerHTML = '<span style="color:#ff4757">Error loading connections</span>';
+  }
+}
+
+async function loadSuspicious() {
+  try {
+    const data = await api('/api/admin/suspicious?unresolved=true');
+    document.getElementById('suspiciousCount').textContent = data.length;
+
+    if (data.length === 0) {
+      document.getElementById('suspiciousTable').innerHTML = '<div style="padding:20px;text-align:center;color:#5a6a8a">No suspicious activity detected</div>';
+      return;
+    }
+
+    document.getElementById('suspiciousTable').innerHTML = `<table><thead><tr><th>Time</th><th>User</th><th>Type</th><th>Description</th><th>IPs</th><th>Action</th></tr></thead><tbody>${
+      data.map(s => `<tr style="background:rgba(255,71,87,0.05)">
+        <td style="font-size:11px">${new Date(s.detected_at).toLocaleString()}</td>
+        <td><strong style="color:#ffa500">${s.username || 'ID:'+s.user_id}</strong></td>
+        <td><span class="badge" style="background:#ff4757;color:#fff;font-size:10px">${s.type}</span></td>
+        <td style="font-size:12px">${s.description}</td>
+        <td style="font-size:10px;color:#5a6a8a;max-width:150px;overflow:hidden;text-overflow:ellipsis">${s.ip_addresses || '-'}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="resolveSuspicious(${s.id})">Resolve</button></td>
+      </tr>`).join('')
+    }</tbody></table>`;
+  } catch(e) {
+    document.getElementById('suspiciousTable').innerHTML = '<div style="padding:20px;color:#ff4757">Error loading data</div>';
+  }
+}
+
+async function resolveSuspicious(id) {
+  await api('/api/admin/suspicious/'+id+'/resolve', 'PUT');
+  loadSuspicious();
+}
+
+async function loadAuditLog() {
+  try {
+    const risk = document.getElementById('auditRiskFilter').value;
+    const url = '/api/admin/audit-log?limit=100' + (risk ? '&risk='+risk : '');
+    const data = await api(url);
+
+    document.getElementById('auditLogBody').innerHTML = data.length === 0
+      ? '<tr><td colspan="6" style="text-align:center;color:#5a6a8a;padding:20px">No audit entries</td></tr>'
+      : data.map(l => `<tr>
+        <td style="font-size:11px;white-space:nowrap">${new Date(l.created_at).toLocaleString()}</td>
+        <td><strong style="color:#00d4ff">${l.username || '-'}</strong></td>
+        <td style="font-size:12px">${l.action}</td>
+        <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;color:#8899bb" title="${(l.details||'').replace(/"/g,'&quot;')}">${l.details || '-'}</td>
+        <td style="font-size:11px;color:#5a6a8a">${l.ip_address || '-'}</td>
+        <td><span class="badge" style="background:${l.risk_level==='high'?'#ff4757':l.risk_level==='medium'?'#ffa500':'#2a3a5a'};color:#fff;font-size:10px">${l.risk_level}</span></td>
+      </tr>`).join('');
+  } catch(e) {
+    document.getElementById('auditLogBody').innerHTML = '<tr><td colspan="6" style="color:#ff4757">Error loading audit log</td></tr>';
+  }
+}
+
 // SECTIONS
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
@@ -924,6 +1260,9 @@ function showSection(name) {
   if(name==='series') { loadSeries(); document.getElementById('episodesPanel').innerHTML=''; }
   if(name==='subs') loadSubs();
   if(name==='restream') loadRestreams();
+  if(name==='security') loadSecurity();
+  if(name==='servers') loadServers();
+  if(name==='autoimport') loadImportSources();
   if(name==='settings') {
     document.getElementById('settingsUrl').textContent = window.location.origin;
     document.getElementById('settingsPort').textContent = window.location.port || '80';
@@ -1125,6 +1464,19 @@ function openBulkImportModal() {
       </label>
     </div>
 
+    <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+      <span style="color:#8899bb;align-self:center;font-size:13px">Import URLs as:</span>
+      <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#0a0f1a;border-radius:8px;cursor:pointer;border:2px solid #00d4ff;font-size:13px">
+        <input type="radio" name="importTarget" value="primary" checked> Primary URL
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#0a0f1a;border-radius:8px;cursor:pointer;border:2px solid #1a2040;font-size:13px">
+        <input type="radio" name="importTarget" value="backup1"> Backup URL 1
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#0a0f1a;border-radius:8px;cursor:pointer;border:2px solid #1a2040;font-size:13px">
+        <input type="radio" name="importTarget" value="backup2"> Backup URL 2
+      </label>
+    </div>
+
     <div id="m3uFileUpload" style="border:2px dashed #1a2040;border-radius:10px;padding:20px;text-align:center;cursor:pointer;margin-bottom:12px;transition:all 0.3s">
       <span style="font-size:24px">📂</span>
       <p style="color:#6a7a9a;font-size:13px;margin-top:5px">Drop M3U file here or click to browse</p>
@@ -1192,9 +1544,10 @@ async function doBulkImport() {
 
   const fmt = document.querySelector('input[name="importFmt"]:checked')?.value || 'auto';
   const format = fmt === 'auto' ? (content.includes('#EXTM3U') || content.includes('#EXTINF:') ? 'm3u' : 'simple') : fmt;
+  const target = document.querySelector('input[name="importTarget"]:checked')?.value || 'primary';
 
   try {
-    const result = await api('/api/admin/bulk-import', 'POST', { content, format });
+    const result = await api('/api/admin/bulk-import', 'POST', { content, format, target });
     alert('✅ ' + result.message);
     closeModal();
     loadChannels();

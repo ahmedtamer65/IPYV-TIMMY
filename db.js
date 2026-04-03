@@ -15,6 +15,11 @@ function saveDb() {
 
 setInterval(() => { if (db) saveDb(); }, 30000);
 
+// Save on process exit to prevent data loss
+process.on('exit', () => { if (db) saveDb(); });
+process.on('SIGINT', () => { if (db) saveDb(); process.exit(0); });
+process.on('SIGTERM', () => { if (db) saveDb(); process.exit(0); });
+
 async function init() {
   const SQL = await initSqlJs();
 
@@ -118,6 +123,60 @@ async function init() {
     content_id INTEGER,
     watched_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id)
+  )`);
+
+  // Audit Log (Anti-Piracy)
+  db.run(`CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    username TEXT,
+    action TEXT NOT NULL,
+    details TEXT,
+    ip_address TEXT,
+    user_agent TEXT,
+    risk_level TEXT DEFAULT 'low',
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
+  // Suspicious Activity Flags
+  db.run(`CREATE TABLE IF NOT EXISTS suspicious_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    type TEXT NOT NULL,
+    description TEXT,
+    ip_addresses TEXT,
+    detected_at TEXT DEFAULT (datetime('now')),
+    resolved INTEGER DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`);
+
+  // Load Balancing - Server Pool
+  db.run(`CREATE TABLE IF NOT EXISTS server_pool (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    region TEXT DEFAULT 'default',
+    max_connections INTEGER DEFAULT 100,
+    current_load INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    priority INTEGER DEFAULT 0,
+    health_status TEXT DEFAULT 'unknown',
+    last_check TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
+  // Auto-Import Sources
+  db.run(`CREATE TABLE IF NOT EXISTS import_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    url TEXT NOT NULL,
+    type TEXT DEFAULT 'm3u',
+    auto_update INTEGER DEFAULT 0,
+    update_interval INTEGER DEFAULT 24,
+    last_import TEXT,
+    channels_count INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
   )`);
 
   // Subscription Plans

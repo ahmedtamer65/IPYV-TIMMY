@@ -268,7 +268,9 @@ router.delete('/subscriptions/:id', (req, res) => {
 // Accepts M3U format or simple format: name|category|url|backup_url|backup_url2
 router.post('/bulk-import', (req, res) => {
   try {
-    const { content, format } = req.body;
+    const { content, format, target } = req.body;
+    // target: 'primary' (default), 'backup1', 'backup2'
+    const urlTarget = target || 'primary';
     if (!content) return res.status(400).json({ error: 'No content provided' });
 
     let channels = [];
@@ -282,7 +284,6 @@ router.post('/bulk-import', (req, res) => {
           const url = (lines[i + 1] && !lines[i + 1].startsWith('#')) ? lines[i + 1] : '';
           if (!url) continue;
 
-          // Parse #EXTINF:-1 tvg-logo="..." group-title="...",Channel Name
           const nameMatch = info.match(/,(.+)$/);
           const name = nameMatch ? nameMatch[1].trim() : 'Unknown';
           const logoMatch = info.match(/tvg-logo="([^"]*)"/);
@@ -290,27 +291,18 @@ router.post('/bulk-import', (req, res) => {
           const groupMatch = info.match(/group-title="([^"]*)"/);
           const category = groupMatch ? groupMatch[1] : 'imported';
 
-          channels.push({ name, category, stream_url: url, logo_url: logo, backup_url: '', backup_url2: '' });
-          i++; // skip url line
+          channels.push({ name, category, url, logo_url: logo });
+          i++;
         }
       }
     } else {
-      // Simple format: name|category|url  or  name|category|url|backup|backup2
       const lines = content.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
       lines.forEach(line => {
         const parts = line.split('|').map(p => p.trim());
         if (parts.length >= 3) {
-          channels.push({
-            name: parts[0],
-            category: parts[1] || 'imported',
-            stream_url: parts[2],
-            logo_url: parts[3] || '',
-            backup_url: parts[4] || '',
-            backup_url2: parts[5] || ''
-          });
+          channels.push({ name: parts[0], category: parts[1] || 'imported', url: parts[2], logo_url: parts[3] || '' });
         } else if (parts.length === 2) {
-          // name|url format
-          channels.push({ name: parts[0], category: 'imported', stream_url: parts[1], logo_url: '', backup_url: '', backup_url2: '' });
+          channels.push({ name: parts[0], category: 'imported', url: parts[1], logo_url: '' });
         }
       });
     }
@@ -322,23 +314,40 @@ router.post('/bulk-import', (req, res) => {
 
     channels.forEach((ch, idx) => {
       try {
-        // Check if channel with same name already exists
         const existing = getOne('SELECT * FROM channels WHERE name = ?', [ch.name]);
         if (existing) {
-          // Update stream URL (and backup/logo if provided)
-          run('UPDATE channels SET stream_url=?, backup_url=?, backup_url2=?, category=?, logo_url=? WHERE id=?', [
-            ch.stream_url,
-            ch.backup_url || existing.backup_url || '',
-            ch.backup_url2 || existing.backup_url2 || '',
-            ch.category !== 'imported' ? ch.category : existing.category,
-            ch.logo_url || existing.logo_url || '',
-            existing.id
-          ]);
+          // Update based on target
+          if (urlTarget === 'backup1') {
+            run('UPDATE channels SET backup_url=?, category=?, logo_url=? WHERE id=?', [
+              ch.url,
+              ch.category !== 'imported' ? ch.category : existing.category,
+              ch.logo_url || existing.logo_url || '',
+              existing.id
+            ]);
+          } else if (urlTarget === 'backup2') {
+            run('UPDATE channels SET backup_url2=?, category=?, logo_url=? WHERE id=?', [
+              ch.url,
+              ch.category !== 'imported' ? ch.category : existing.category,
+              ch.logo_url || existing.logo_url || '',
+              existing.id
+            ]);
+          } else {
+            // primary (default)
+            run('UPDATE channels SET stream_url=?, category=?, logo_url=? WHERE id=?', [
+              ch.url,
+              ch.category !== 'imported' ? ch.category : existing.category,
+              ch.logo_url || existing.logo_url || '',
+              existing.id
+            ]);
+          }
           updated++;
         } else {
-          // New channel - insert
+          // New channel
+          const streamUrl = urlTarget === 'primary' ? ch.url : '';
+          const backup1 = urlTarget === 'backup1' ? ch.url : '';
+          const backup2 = urlTarget === 'backup2' ? ch.url : '';
           run('INSERT INTO channels (name, category, stream_url, backup_url, backup_url2, logo_url, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [ch.name, ch.category, ch.stream_url, ch.backup_url, ch.backup_url2, ch.logo_url, maxSort + idx + 1]);
+            [ch.name, ch.category, streamUrl, backup1, backup2, ch.logo_url, maxSort + idx + 1]);
           added++;
         }
       } catch (e) {
@@ -346,8 +355,9 @@ router.post('/bulk-import', (req, res) => {
       }
     });
 
+    const targetLabel = urlTarget === 'backup1' ? 'Backup 1' : urlTarget === 'backup2' ? 'Backup 2' : 'Primary';
     res.json({
-      message: `✅ ${added} added, 🔄 ${updated} updated, ⏭️ ${skipped} skipped`,
+      message: `✅ ${added} added, 🔄 ${updated} updated (${targetLabel}), ⏭️ ${skipped} skipped`,
       added, updated, skipped, total: channels.length
     });
   } catch (err) {
@@ -427,6 +437,213 @@ router.get('/media', (req, res) => {
     res.json(files);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ===== LOAD BALANCING - SERVER POOL (#16) =====
+router.get('/servers', (req, res) => {
+  res.json(getAll('SELECT * FROM server_pool ORDER BY priority DESC'));
+});
+
+router.post('/servers', (req, res) => {
+  try {
+    const { name, url, region, max_connections, priority } = req.body;
+    if (!name || !url) return res.status(400).json({ error: 'Name and URL required' });
+    const result = run('INSERT INTO server_pool (name, url, region, max_connections, priority) VALUES (?, ?, ?, ?, ?)',
+      [name, url, region || 'default', max_connections || 100, priority || 0]);
+    res.json({ id: result.lastInsertRowid, message: 'Server added' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/servers/:id', (req, res) => {
+  const { name, url, region, max_connections, is_active, priority } = req.body;
+  const srv = getOne('SELECT * FROM server_pool WHERE id = ?', [req.params.id]);
+  if (!srv) return res.status(404).json({ error: 'Server not found' });
+  run('UPDATE server_pool SET name=?, url=?, region=?, max_connections=?, is_active=?, priority=? WHERE id=?', [
+    name ?? srv.name, url ?? srv.url, region ?? srv.region,
+    max_connections ?? srv.max_connections, is_active ?? srv.is_active,
+    priority ?? srv.priority, req.params.id
+  ]);
+  res.json({ message: 'Server updated' });
+});
+
+router.delete('/servers/:id', (req, res) => {
+  run('DELETE FROM server_pool WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Server deleted' });
+});
+
+// Health check all servers
+router.post('/servers/health-check', async (req, res) => {
+  const servers = getAll('SELECT * FROM server_pool WHERE is_active = 1');
+  const http = require('http');
+  const https = require('https');
+  const results = [];
+
+  for (const srv of servers) {
+    try {
+      const start = Date.now();
+      const url = new URL(srv.url);
+      const client = url.protocol === 'https:' ? https : http;
+
+      await new Promise((resolve, reject) => {
+        const req = client.get(srv.url, { timeout: 5000 }, (response) => {
+          const latency = Date.now() - start;
+          const status = response.statusCode < 400 ? 'healthy' : 'degraded';
+          run('UPDATE server_pool SET health_status=?, last_check=datetime("now") WHERE id=?', [status, srv.id]);
+          results.push({ id: srv.id, name: srv.name, status, latency: latency + 'ms' });
+          response.resume();
+          resolve();
+        });
+        req.on('error', () => {
+          run('UPDATE server_pool SET health_status="down", last_check=datetime("now") WHERE id=?', [srv.id]);
+          results.push({ id: srv.id, name: srv.name, status: 'down', latency: '-' });
+          resolve();
+        });
+        req.on('timeout', () => {
+          req.destroy();
+          run('UPDATE server_pool SET health_status="timeout", last_check=datetime("now") WHERE id=?', [srv.id]);
+          results.push({ id: srv.id, name: srv.name, status: 'timeout', latency: '-' });
+          resolve();
+        });
+      });
+    } catch (e) {
+      results.push({ id: srv.id, name: srv.name, status: 'error', latency: '-' });
+    }
+  }
+  res.json({ checked: results.length, results });
+});
+
+// Get best server (load balancing algorithm)
+router.get('/servers/best', (req, res) => {
+  const servers = getAll('SELECT * FROM server_pool WHERE is_active = 1 AND (health_status = "healthy" OR health_status = "unknown") ORDER BY (CAST(current_load AS FLOAT) / max_connections) ASC, priority DESC LIMIT 1');
+  if (servers.length === 0) return res.json({ server: null, message: 'No healthy servers available' });
+  res.json({ server: servers[0] });
+});
+
+// ===== AUTO-IMPORT SOURCES (#17) =====
+router.get('/import-sources', (req, res) => {
+  res.json(getAll('SELECT * FROM import_sources ORDER BY id DESC'));
+});
+
+router.post('/import-sources', (req, res) => {
+  try {
+    const { name, url, type, auto_update, update_interval } = req.body;
+    if (!name || !url) return res.status(400).json({ error: 'Name and URL required' });
+    const result = run('INSERT INTO import_sources (name, url, type, auto_update, update_interval) VALUES (?, ?, ?, ?, ?)',
+      [name, url, type || 'm3u', auto_update ? 1 : 0, update_interval || 24]);
+    res.json({ id: result.lastInsertRowid, message: 'Source added' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/import-sources/:id', (req, res) => {
+  const { name, url, type, auto_update, update_interval, is_active } = req.body;
+  const src = getOne('SELECT * FROM import_sources WHERE id = ?', [req.params.id]);
+  if (!src) return res.status(404).json({ error: 'Source not found' });
+  run('UPDATE import_sources SET name=?, url=?, type=?, auto_update=?, update_interval=?, is_active=? WHERE id=?', [
+    name ?? src.name, url ?? src.url, type ?? src.type,
+    auto_update !== undefined ? (auto_update ? 1 : 0) : src.auto_update,
+    update_interval ?? src.update_interval, is_active ?? src.is_active, req.params.id
+  ]);
+  res.json({ message: 'Source updated' });
+});
+
+router.delete('/import-sources/:id', (req, res) => {
+  run('DELETE FROM import_sources WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Source deleted' });
+});
+
+// Fetch and import from a source
+router.post('/import-sources/:id/fetch', async (req, res) => {
+  const src = getOne('SELECT * FROM import_sources WHERE id = ?', [req.params.id]);
+  if (!src) return res.status(404).json({ error: 'Source not found' });
+
+  try {
+    const http = require('http');
+    const https = require('https');
+
+    const content = await new Promise((resolve, reject) => {
+      const url = new URL(src.url);
+      const client = url.protocol === 'https:' ? https : http;
+      client.get(src.url, { timeout: 30000, headers: { 'User-Agent': 'Mozilla/5.0' } }, (response) => {
+        // Follow redirects
+        if ([301, 302, 307].includes(response.statusCode) && response.headers.location) {
+          client.get(response.headers.location, { timeout: 30000 }, (r2) => {
+            let data = '';
+            r2.on('data', chunk => data += chunk);
+            r2.on('end', () => resolve(data));
+          }).on('error', reject);
+          return;
+        }
+        let data = '';
+        response.on('data', chunk => data += chunk);
+        response.on('end', () => resolve(data));
+      }).on('error', reject);
+    });
+
+    if (!content || content.length < 10) {
+      return res.status(400).json({ error: 'Empty or invalid response from source' });
+    }
+
+    // Parse M3U
+    const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+    let channels = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('#EXTINF:')) {
+        const info = lines[i];
+        const url = (lines[i + 1] && !lines[i + 1].startsWith('#')) ? lines[i + 1] : '';
+        if (!url) continue;
+
+        const nameMatch = info.match(/,(.+)$/);
+        const name = nameMatch ? nameMatch[1].trim() : 'Unknown';
+        const logoMatch = info.match(/tvg-logo="([^"]*)"/);
+        const logo = logoMatch ? logoMatch[1] : '';
+        const groupMatch = info.match(/group-title="([^"]*)"/);
+        const category = groupMatch ? groupMatch[1] : 'imported';
+
+        channels.push({ name, category, url, logo_url: logo });
+        i++;
+      }
+    }
+
+    if (channels.length === 0) {
+      return res.status(400).json({ error: 'No channels found in M3U content' });
+    }
+
+    let added = 0, updated = 0, skipped = 0;
+    const maxSort = (getOne('SELECT MAX(sort_order) as m FROM channels', []) || {}).m || 0;
+
+    channels.forEach((ch, idx) => {
+      try {
+        const existing = getOne('SELECT * FROM channels WHERE name = ?', [ch.name]);
+        if (existing) {
+          run('UPDATE channels SET stream_url=?, category=?, logo_url=? WHERE id=?', [
+            ch.url,
+            ch.category !== 'imported' ? ch.category : existing.category,
+            ch.logo_url || existing.logo_url || '',
+            existing.id
+          ]);
+          updated++;
+        } else {
+          run('INSERT INTO channels (name, category, stream_url, logo_url, sort_order) VALUES (?, ?, ?, ?, ?)',
+            [ch.name, ch.category, ch.url, ch.logo_url, maxSort + idx + 1]);
+          added++;
+        }
+      } catch (e) { skipped++; }
+    });
+
+    // Update source stats
+    run('UPDATE import_sources SET last_import=datetime("now"), channels_count=? WHERE id=?', [channels.length, src.id]);
+
+    res.json({
+      message: `✅ Fetched ${channels.length} channels: ${added} added, ${updated} updated, ${skipped} skipped`,
+      added, updated, skipped, total: channels.length
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Fetch failed: ' + err.message });
   }
 });
 
