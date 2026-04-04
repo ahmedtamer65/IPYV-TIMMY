@@ -5,41 +5,179 @@ const bcrypt = require('bcryptjs');
 
 const BASE_DIR = process.pkg ? path.dirname(process.execPath) : __dirname;
 const DB_PATH = path.join(BASE_DIR, 'iptv.db');
+const DB_BACKUP = path.join(BASE_DIR, 'iptv.db.backup');
 
 let db = null;
+let _saveTimer = null;
+let _savePending = false;
+let _dbReady = false; // Only allow saves after init completes successfully
 
 function saveDb() {
-  const data = db.export();
-  fs.writeFileSync(DB_PATH, Buffer.from(data));
+  try {
+    if (!db) return;
+    const data = db.export();
+    const buf = Buffer.from(data);
+
+    // Safety check: never save an empty/tiny database over a bigger one
+    if (fs.existsSync(DB_PATH)) {
+      const existingSize = fs.statSync(DB_PATH).size;
+      if (existingSize > 5000 && buf.length < existingSize * 0.5) {
+        console.error(`🛑 SAVE BLOCKED: New DB (${buf.length} bytes) is <50% of existing (${existingSize} bytes). Possible data loss!`);
+        return;
+      }
+    }
+
+    // Write to temp file first, then rename (atomic write - prevents corruption)
+    const tmpPath = DB_PATH + '.tmp';
+    fs.writeFileSync(tmpPath, buf);
+    // Keep a backup copy before overwriting
+    if (fs.existsSync(DB_PATH)) {
+      try { fs.copyFileSync(DB_PATH, DB_BACKUP); } catch(e) {}
+    }
+    fs.renameSync(tmpPath, DB_PATH);
+    _savePending = false;
+  } catch(e) {
+    console.error('DB save error:', e.message);
+    // Fallback: direct write
+    try {
+      const data = db.export();
+      const buf = Buffer.from(data);
+      // Same safety check in fallback
+      if (fs.existsSync(DB_PATH)) {
+        const existingSize = fs.statSync(DB_PATH).size;
+        if (existingSize > 5000 && buf.length < existingSize * 0.5) {
+          console.error('🛑 SAVE BLOCKED (fallback): Data too small, refusing to overwrite');
+          return;
+        }
+      }
+      fs.writeFileSync(DB_PATH, buf);
+      _savePending = false;
+    } catch(e2) { console.error('DB save fallback failed:', e2.message); }
+  }
 }
 
-// Auto-save every 10 seconds (was 30s — more frequent to prevent data loss)
-setInterval(() => { if (db) saveDb(); }, 10000);
+// Debounced save — groups rapid writes, saves once after 1 second of no writes
+function scheduleSave() {
+  _savePending = true;
+  if (_saveTimer) clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(() => { saveDb(); _saveTimer = null; }, 1000);
+}
+
+// Auto-save every 10 seconds as safety net (only if there are pending changes)
+setInterval(() => { if (db && _savePending) saveDb(); }, 10000);
 
 // Save on process exit to prevent data loss
-process.on('exit', () => { if (db) saveDb(); });
-process.on('SIGINT', () => { console.log('\nSaving database...'); if (db) saveDb(); process.exit(0); });
-process.on('SIGTERM', () => { console.log('\nSaving database...'); if (db) saveDb(); process.exit(0); });
-process.on('uncaughtException', (err) => { console.error('Uncaught exception:', err); if (db) saveDb(); });
-process.on('unhandledRejection', (err) => { console.error('Unhandled rejection:', err); if (db) saveDb(); });
+function emergencySave() { if (db && _savePending) { try { saveDb(); } catch(e) {} } }
+process.on('exit', emergencySave);
+process.on('SIGINT', () => { console.log('\n💾 Saving database before exit...'); emergencySave(); process.exit(0); });
+process.on('SIGTERM', () => { console.log('\n💾 Saving database before exit...'); emergencySave(); process.exit(0); });
+process.on('uncaughtException', (err) => { console.error('Uncaught exception:', err); emergencySave(); });
+process.on('unhandledRejection', (err) => { console.error('Unhandled rejection:', err); emergencySave(); });
 
 async function init() {
   const SQL = await initSqlJs();
 
-  // Force reset if RESET_DB env or if .reset file exists
-  const resetFile = path.join(BASE_DIR, '.reset_db');
-  if (fs.existsSync(resetFile) || process.env.RESET_DB) {
-    if (fs.existsSync(DB_PATH)) fs.unlinkSync(DB_PATH);
-    if (fs.existsSync(resetFile)) fs.unlinkSync(resetFile);
-    console.log('Database reset forced!');
+  // Lock file — prevent two servers from writing to same DB
+  const LOCK_FILE = path.join(BASE_DIR, 'iptv.lock');
+  if (fs.existsSync(LOCK_FILE)) {
+    try {
+      const lockData = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf8'));
+      const lockAge = Date.now() - lockData.time;
+      if (lockAge < 10000) { // Lock less than 10 seconds old = another server is running
+        console.error('⚠️  WARNING: Another server may be running! (Lock file is ' + (lockAge/1000).toFixed(1) + 's old)');
+        console.error('   This can cause data loss! Kill other node processes first.');
+        console.error('   If no other server is running, delete: ' + LOCK_FILE);
+      }
+    } catch(e) {}
+  }
+  // Write our lock
+  const updateLock = () => {
+    try { fs.writeFileSync(LOCK_FILE, JSON.stringify({ pid: process.pid, time: Date.now() })); } catch(e) {}
+  };
+  updateLock();
+  setInterval(updateLock, 5000);
+  process.on('exit', () => { try { fs.unlinkSync(LOCK_FILE); } catch(e) {} });
+
+  // ===== DATABASE LOADING WITH FULL PROTECTION =====
+
+  // Check for .tmp file from interrupted save — recover it
+  const tmpPath = DB_PATH + '.tmp';
+  if (fs.existsSync(tmpPath)) {
+    const tmpSize = fs.statSync(tmpPath).size;
+    console.log(`⚠️  Found interrupted save file (${(tmpSize/1024).toFixed(1)} KB)`);
+    if (tmpSize > 100) {
+      // If main DB is missing or smaller, use the tmp file
+      const mainSize = fs.existsSync(DB_PATH) ? fs.statSync(DB_PATH).size : 0;
+      if (tmpSize >= mainSize) {
+        try {
+          const tmpBuf = fs.readFileSync(tmpPath);
+          const testDb = new SQL.Database(tmpBuf);
+          testDb.exec('SELECT COUNT(*) FROM users'); // Sanity check
+          testDb.close();
+          // It's valid — use it
+          if (fs.existsSync(DB_PATH)) fs.copyFileSync(DB_PATH, DB_BACKUP);
+          fs.renameSync(tmpPath, DB_PATH);
+          console.log('✅ Recovered database from interrupted save');
+        } catch(e) {
+          console.log('   tmp file is corrupted, ignoring');
+          try { fs.unlinkSync(tmpPath); } catch(e2) {}
+        }
+      } else {
+        try { fs.unlinkSync(tmpPath); } catch(e) {}
+      }
+    } else {
+      try { fs.unlinkSync(tmpPath); } catch(e) {}
+    }
   }
 
+  // Load the database — try main file, then backup, then create new
+  let loadedFrom = 'new';
   if (fs.existsSync(DB_PATH)) {
-    const buffer = fs.readFileSync(DB_PATH);
-    db = new SQL.Database(buffer);
+    try {
+      const buffer = fs.readFileSync(DB_PATH);
+      if (buffer.length < 100) throw new Error('DB file too small (' + buffer.length + ' bytes), likely corrupted');
+      db = new SQL.Database(buffer);
+      // Sanity check: can we read tables?
+      const tableCheck = db.exec("SELECT name FROM sqlite_master WHERE type='table'");
+      const tables = tableCheck.length > 0 ? tableCheck[0].values.map(v => v[0]) : [];
+      if (tables.length < 3) throw new Error('DB has only ' + tables.length + ' tables, likely incomplete');
+      db.exec('SELECT COUNT(*) FROM users');
+      loadedFrom = 'main';
+      console.log(`✅ Database loaded from ${DB_PATH} (${(buffer.length/1024).toFixed(1)} KB, ${tables.length} tables)`);
+    } catch(e) {
+      console.error('❌ Main database error:', e.message);
+      db = null;
+      // Try backup
+      if (fs.existsSync(DB_BACKUP)) {
+        console.log('   Trying backup...');
+        try {
+          const backupBuf = fs.readFileSync(DB_BACKUP);
+          if (backupBuf.length < 100) throw new Error('Backup too small');
+          db = new SQL.Database(backupBuf);
+          db.exec('SELECT COUNT(*) FROM users');
+          loadedFrom = 'backup';
+          console.log('✅ Restored from backup! (' + (backupBuf.length/1024).toFixed(1) + ' KB)');
+          // Save the restored backup as main
+          saveDb();
+        } catch(e2) {
+          console.error('   ❌ Backup also failed:', e2.message);
+          db = null;
+        }
+      }
+      if (!db) {
+        console.log('   Creating fresh database...');
+        db = new SQL.Database();
+        loadedFrom = 'new';
+      }
+    }
   } else {
     db = new SQL.Database();
+    console.log('📦 Creating new database (no existing file found)');
+    loadedFrom = 'new';
   }
+
+  // Log what we loaded — this helps debug data loss
+  console.log(`   DB source: ${loadedFrom} | PID: ${process.pid}`);
 
   // Users
   db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -395,21 +533,21 @@ async function init() {
   if (mvCount.count === 0) {
     // Real playable videos - open source films & public domain
     const realFilms = {
-      // Blender Open Movies (real full films, free & open source)
-      bigBuck: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-      elephants: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-      sintel: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-      tears: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
+      // Blender Open Movies - working public URLs
+      bigBuck: 'https://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_1080p_h264.mov',
+      elephants: 'https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4',
+      sintel: 'https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4',
+      tears: 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4',
       // Additional working videos
-      v5: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4',
-      v6: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4',
-      v7: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4',
-      v8: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4',
-      v9: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-      v10: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-      v11: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-      v12: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-      v13: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+      v5: 'https://test-videos.co.uk/vids/sintel/mp4/h264/1080/Sintel_1080_10s_1MB.mp4',
+      v6: 'https://test-videos.co.uk/vids/jellyfish/mp4/h264/1080/Jellyfish_1080_10s_1MB.mp4',
+      v7: 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
+      v8: 'https://test-videos.co.uk/vids/sintel/mp4/h264/720/Sintel_720_10s_1MB.mp4',
+      v9: 'https://test-videos.co.uk/vids/jellyfish/mp4/h264/720/Jellyfish_720_10s_1MB.mp4',
+      v10: 'https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4',
+      v11: 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4',
+      v12: 'https://test-videos.co.uk/vids/sintel/mp4/h264/360/Sintel_360_10s_1MB.mp4',
+      v13: 'https://test-videos.co.uk/vids/jellyfish/mp4/h264/360/Jellyfish_360_10s_1MB.mp4',
     };
     const f = realFilms;
 
@@ -493,15 +631,15 @@ async function init() {
   const serCount = getOne('SELECT COUNT(*) as count FROM series', []);
   if (serCount.count === 0) {
     const epVids = [
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4',
-      'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4',
+      'https://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_1080p_h264.mov',
+      'https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4',
+      'https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4',
+      'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4',
+      'https://test-videos.co.uk/vids/sintel/mp4/h264/1080/Sintel_1080_10s_1MB.mp4',
+      'https://test-videos.co.uk/vids/jellyfish/mp4/h264/1080/Jellyfish_1080_10s_1MB.mp4',
+      'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
+      'https://test-videos.co.uk/vids/sintel/mp4/h264/720/Sintel_720_10s_1MB.mp4',
+      'https://test-videos.co.uk/vids/jellyfish/mp4/h264/720/Jellyfish_720_10s_1MB.mp4',
     ];
 
     const seriesData = [
@@ -642,16 +780,109 @@ async function init() {
     console.log(`${seriesData.length} series with episodes created`);
   }
 
+  // ===== MIGRATION: Fix broken Google Cloud Storage URLs =====
+  // These URLs now return 403 Forbidden, replace with working alternatives
+  const brokenUrlMap = {
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4': 'https://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_1080p_h264.mov',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4': 'https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4': 'https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4': 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4': 'https://test-videos.co.uk/vids/sintel/mp4/h264/1080/Sintel_1080_10s_1MB.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4': 'https://test-videos.co.uk/vids/jellyfish/mp4/h264/1080/Jellyfish_1080_10s_1MB.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4': 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4': 'https://test-videos.co.uk/vids/sintel/mp4/h264/720/Sintel_720_10s_1MB.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4': 'https://test-videos.co.uk/vids/jellyfish/mp4/h264/720/Jellyfish_720_10s_1MB.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4': 'https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4': 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4': 'https://test-videos.co.uk/vids/sintel/mp4/h264/360/Sintel_360_10s_1MB.mp4',
+    'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4': 'https://test-videos.co.uk/vids/jellyfish/mp4/h264/360/Jellyfish_360_10s_1MB.mp4',
+    'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4': 'https://download.blender.org/peach/bigbuckbunny_movies/big_buck_bunny_1080p_h264.mov',
+    'https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4': 'https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4',
+    'https://storage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4': 'https://download.blender.org/durian/trailer/sintel_trailer-1080p.mp4',
+    'https://storage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4': 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4',
+  };
+  let urlFixCount = 0;
+  for (const [oldUrl, newUrl] of Object.entries(brokenUrlMap)) {
+    // Fix movies
+    db.run('UPDATE movies SET video_url = ? WHERE video_url = ?', [newUrl, oldUrl]);
+    db.run('UPDATE movies SET backup_url = ? WHERE backup_url = ?', [newUrl, oldUrl]);
+    db.run('UPDATE movies SET backup_url2 = ? WHERE backup_url2 = ?', [newUrl, oldUrl]);
+    // Fix episodes
+    db.run('UPDATE episodes SET video_url = ? WHERE video_url = ?', [newUrl, oldUrl]);
+    db.run('UPDATE episodes SET backup_url = ? WHERE backup_url = ?', [newUrl, oldUrl]);
+    db.run('UPDATE episodes SET backup_url2 = ? WHERE backup_url2 = ?', [newUrl, oldUrl]);
+  }
+  // Also catch any remaining commondatastorage URLs with a fallback
+  const fallbackUrl = 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/1080/Big_Buck_Bunny_1080_10s_1MB.mp4';
+  db.run("UPDATE movies SET video_url = ? WHERE video_url LIKE '%commondatastorage.googleapis.com%'", [fallbackUrl]);
+  db.run("UPDATE movies SET backup_url = ? WHERE backup_url LIKE '%commondatastorage.googleapis.com%'", [fallbackUrl]);
+  db.run("UPDATE movies SET backup_url2 = ? WHERE backup_url2 LIKE '%commondatastorage.googleapis.com%'", [fallbackUrl]);
+  db.run("UPDATE episodes SET video_url = ? WHERE video_url LIKE '%commondatastorage.googleapis.com%'", [fallbackUrl]);
+  db.run("UPDATE episodes SET backup_url = ? WHERE backup_url LIKE '%commondatastorage.googleapis.com%'", [fallbackUrl]);
+  db.run("UPDATE episodes SET backup_url2 = ? WHERE backup_url2 LIKE '%commondatastorage.googleapis.com%'", [fallbackUrl]);
+  // Also fix storage.googleapis.com URLs
+  db.run("UPDATE movies SET video_url = ? WHERE video_url LIKE '%storage.googleapis.com/gtv-videos%'", [fallbackUrl]);
+  db.run("UPDATE movies SET backup_url = ? WHERE backup_url LIKE '%storage.googleapis.com/gtv-videos%'", [fallbackUrl]);
+  db.run("UPDATE movies SET backup_url2 = ? WHERE backup_url2 LIKE '%storage.googleapis.com/gtv-videos%'", [fallbackUrl]);
+  db.run("UPDATE episodes SET video_url = ? WHERE video_url LIKE '%storage.googleapis.com/gtv-videos%'", [fallbackUrl]);
+  db.run("UPDATE episodes SET backup_url = ? WHERE backup_url LIKE '%storage.googleapis.com/gtv-videos%'", [fallbackUrl]);
+  db.run("UPDATE episodes SET backup_url2 = ? WHERE backup_url2 LIKE '%storage.googleapis.com/gtv-videos%'", [fallbackUrl]);
+  console.log('✅ Fixed all broken Google Cloud Storage video URLs');
+
+  // Print database summary
+  const chCount2 = getOne('SELECT COUNT(*) as c FROM channels', []);
+  const mvCount2 = getOne('SELECT COUNT(*) as c FROM movies', []);
+  const serCount2 = getOne('SELECT COUNT(*) as c FROM series', []);
+  const epCount2 = getOne('SELECT COUNT(*) as c FROM episodes', []);
+  const usrCount2 = getOne('SELECT COUNT(*) as c FROM users', []);
+  const planCount2 = getOne('SELECT COUNT(*) as c FROM subscriptions', []);
+  console.log('');
+  console.log('📊 Database Summary:');
+  console.log(`   Channels: ${chCount2.c} | Movies: ${mvCount2.c} | Series: ${serCount2.c} | Episodes: ${epCount2.c}`);
+  console.log(`   Users: ${usrCount2.c} | Plans: ${planCount2.c}`);
+  console.log(`   DB Path: ${DB_PATH}`);
+
+  // Save a snapshot of counts to a log file — helps debug data loss
+  try {
+    const snapshot = {
+      time: new Date().toISOString(),
+      pid: process.pid,
+      source: loadedFrom,
+      counts: {
+        channels: chCount2.c, movies: mvCount2.c, series: serCount2.c,
+        episodes: epCount2.c, users: usrCount2.c, plans: planCount2.c
+      }
+    };
+    const snapshotPath = path.join(BASE_DIR, 'db_snapshots.log');
+    fs.appendFileSync(snapshotPath, JSON.stringify(snapshot) + '\n');
+    console.log('   📋 Snapshot saved to db_snapshots.log');
+  } catch(e) {}
+  console.log('');
+
+  // Final save after all init/migration is done
   saveDb();
+  _dbReady = true;
   return db;
 }
 
 // Helper functions
 function run(sql, params = []) {
+  // Log DELETE operations to help debug data loss
+  const sqlLower = sql.trim().toLowerCase();
+  if (sqlLower.startsWith('delete')) {
+    const timestamp = new Date().toISOString();
+    const logLine = `[${timestamp}] DELETE: ${sql} | params: ${JSON.stringify(params)}\n`;
+    console.log('⚠️ DB DELETE:', sql, params);
+    try {
+      fs.appendFileSync(path.join(BASE_DIR, 'delete_log.txt'), logLine);
+    } catch(e) {}
+  }
   db.run(sql, params);
   const result = db.exec('SELECT last_insert_rowid() as id');
   const lastId = result.length > 0 ? result[0].values[0][0] : 0;
-  saveDb();
+  // Schedule a save (debounced) instead of saving immediately
+  // This groups rapid writes (like bulk imports) into one save
+  scheduleSave();
   return { lastInsertRowid: lastId };
 }
 

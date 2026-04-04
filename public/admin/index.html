@@ -165,6 +165,7 @@
         <h2>Users Management</h2>
         <div style="display:flex;gap:10px">
           <input type="text" class="search-box" placeholder="Search users..." oninput="filterUsers(this.value)">
+          <button class="btn" style="background:#00b894" data-action="exportUsersCSV">📥 Export CSV</button>
           <button class="btn btn-primary" id="btnAddUser">+ Add User</button>
         </div>
       </div>
@@ -205,6 +206,7 @@
           <button class="btn btn-primary" id="btnAddMovie">+ Add Movie</button>
           <button class="btn" style="background:#6c5ce7" id="btnUploadMedia">📤 Upload Video</button>
           <button class="btn" style="background:#00b894" id="btnMediaLibrary">🎞️ Media Library</button>
+          <button class="btn" style="background:#f39c12" data-action="fetchTMDB">🎬 TMDB Posters</button>
         </div>
       </div>
       <div class="filter-tabs" id="movieFilters"></div>
@@ -553,13 +555,35 @@ function renderUsers(users) {
 function filterUsers(q) { renderUsers(allUsers.filter(u => u.username.toLowerCase().includes(q.toLowerCase()))); }
 async function toggleUser(id,active) { await api(`/api/admin/users/${id}`,'PUT',{is_active:active}); await loadUsers(); }
 async function deleteUser(id) { if(!confirm('Delete user?'))return; await api(`/api/admin/users/${id}`,'DELETE'); await loadUsers(); }
+async function fetchTMDBPosters() {
+  if(!confirm('Fetch movie/series posters from TMDB?\nMake sure TMDB_API_KEY is set on the server.')) return;
+  try {
+    const r = await api('/api/admin/tmdb/fetch-posters', 'POST');
+    alert(r.message || 'Done!');
+    await loadMovies();
+  } catch(e) { alert('Error: ' + (e.message || 'Set TMDB_API_KEY env variable')); }
+}
+function exportUsersCSV() {
+  const header = 'ID,Username,Role,Subscription,Expires,MaxConnections,Status,LastLogin,Notes';
+  const rows = allUsers.map(u => `${u.id},"${u.username}",${u.role},${u.subscription},${u.expires_at||'Unlimited'},${u.max_connections||1},${u.is_active?'Active':'Blocked'},"${u.last_login||'Never'}","${(u.notes||'').replace(/"/g,'""')}"`);
+  const csv = header + '\n' + rows.join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'users_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+}
 
 function openUserModal(id=null) {
   const u = id ? allUsers.find(x=>x.id===id) : null;
   document.getElementById('modalContent').innerHTML = `
     <h3>${u?'Edit User':'Add User'}</h3>
     <label>Username</label><input id="m_username" value="${u?.username||''}">
-    ${!u?'<label>Password</label><input id="m_password" type="password" placeholder="Default: 1234">':''}
+    <label>Password ${u?'(leave empty to keep current)':''}</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input id="m_password" type="text" placeholder="${u?'Enter new password...':'Default: 1234'}" style="flex:1" value="">
+      <button class="btn btn-ghost" type="button" onclick="document.getElementById('m_password').value=Math.random().toString(36).slice(2,10)" style="white-space:nowrap;font-size:12px">Generate</button>
+    </div>
     <div class="form-row">
       <div><label>Role</label><select id="m_role"><option value="user" ${u?.role==='user'?'selected':''}>User</option><option value="admin" ${u?.role==='admin'?'selected':''}>Admin</option></select></div>
       <div><label>Subscription</label><select id="m_sub"><option value="trial" ${u?.subscription==='trial'?'selected':''}>Free Trial</option><option value="monthly" ${u?.subscription==='monthly'?'selected':''}>Monthly</option><option value="6months" ${u?.subscription==='6months'?'selected':''}>6 Months</option><option value="yearly" ${u?.subscription==='yearly'?'selected':''}>Yearly</option></select></div>
@@ -586,8 +610,16 @@ async function saveUser(id) {
     max_connections: parseInt(document.getElementById('m_conns').value)||1,
     notes: document.getElementById('m_notes').value||null
   };
-  if(!id) body.password = document.getElementById('m_password')?.value||'1234';
+  const newPass = document.getElementById('m_password')?.value;
+  if(!id) {
+    // Creating new user — set password
+    body.password = newPass || '1234';
+  }
   await api(id?`/api/admin/users/${id}`:'/api/admin/users',id?'PUT':'POST',body);
+  // If editing and password was entered, update it separately
+  if(id && newPass) {
+    await api(`/api/admin/users/${id}/password`,'PUT',{password:newPass});
+  }
   closeModal(); await loadUsers();
 }
 
@@ -1432,6 +1464,9 @@ document.addEventListener('click', function(e) {
     case 'rsRestart': api(`/restream/stream/${id}/restart`,'POST').then(()=>setTimeout(loadRestreams,1500)); break;
     case 'rsDelete': if(confirm('Delete this restream?')) api(`/restream/stream/${id}`,'DELETE').then(()=>loadRestreams()); break;
     case 'rsLogs': showRestreamLogs(id); break;
+    // Export & TMDB
+    case 'exportUsersCSV': exportUsersCSV(); break;
+    case 'fetchTMDB': fetchTMDBPosters(); break;
     // Bulk import & Media
     case 'doBulkImport': doBulkImport(); break;
     case 'openUploadFromLib': openUploadModal(); break;

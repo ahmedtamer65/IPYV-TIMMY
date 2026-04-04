@@ -8,6 +8,16 @@ const bcrypt = require('bcryptjs');
 const { init, getOne, getAll, run } = require('./db');
 const restream = require('./restream');
 
+// Load .env file
+const BASE_DIR_ENV = process.pkg ? path.dirname(process.execPath) : __dirname;
+const envPath = path.join(BASE_DIR_ENV, '.env');
+if (fs.existsSync(envPath)) {
+  fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+    const [key, ...vals] = line.trim().split('=');
+    if (key && !key.startsWith('#') && vals.length) process.env[key] = vals.join('=');
+  });
+}
+
 const app = express();
 const PORT = process.env.PORT || 3500;
 const BASE_DIR = process.pkg ? path.dirname(process.execPath) : __dirname;
@@ -224,6 +234,77 @@ app.put('/api/admin/suspicious/:id/resolve', (req, res) => {
   res.json({ message: 'Resolved' });
 });
 
+// ===== UNIVERSAL PROXY FUNCTION =====
+// Proxies any external URL through our server (follows redirects, no timeout for streams)
+function proxyUrl(url, req, res, defaultContentType) {
+  function doProxy(targetUrl, redirectCount) {
+    if (redirectCount > 5) {
+      if (!res.headersSent) res.status(502).send('Too many redirects');
+      return;
+    }
+    const parsedUrl = new URL(targetUrl);
+    const client = parsedUrl.protocol === 'https:' ? https : http;
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search,
+      method: 'GET',
+      agent: false,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': '*/*',
+        'Connection': 'keep-alive'
+      }
+    };
+    // Pass Range header for seeking in VOD
+    if (req.headers.range) options.headers['Range'] = req.headers.range;
+
+    const proxyReq = client.request(options, (proxyRes) => {
+      if ([301, 302, 307, 308].includes(proxyRes.statusCode) && proxyRes.headers.location) {
+        proxyRes.resume();
+        const rUrl = proxyRes.headers.location.startsWith('http')
+          ? proxyRes.headers.location
+          : new URL(proxyRes.headers.location, targetUrl).href;
+        doProxy(rUrl, redirectCount + 1);
+        return;
+      }
+      proxyRes.socket.setTimeout(0);
+      proxyRes.socket.setKeepAlive(true, 5000);
+
+      // Set response headers
+      const ct = proxyRes.headers['content-type'] || defaultContentType || 'application/octet-stream';
+      // Normalize content-type for video (some servers send 'video/quicktime' for .mov)
+      const normalizedCt = ct.includes('quicktime') ? 'video/mp4' : ct;
+      res.setHeader('Content-Type', normalizedCt);
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Cache-Control', 'no-cache');
+      // Always advertise Accept-Ranges for VOD — IPTV Smarters needs this for seeking
+      res.setHeader('Accept-Ranges', proxyRes.headers['accept-ranges'] || 'bytes');
+      if (proxyRes.headers['content-length']) res.setHeader('Content-Length', proxyRes.headers['content-length']);
+      if (proxyRes.headers['content-range']) res.setHeader('Content-Range', proxyRes.headers['content-range']);
+      if (proxyRes.statusCode === 206) res.status(206);
+      res.flushHeaders();
+
+      proxyRes.on('data', (chunk) => { if (!res.writableEnded) res.write(chunk); });
+      proxyRes.on('end', () => { if (!res.writableEnded) res.end(); });
+      proxyRes.on('error', () => { if (!res.writableEnded) res.end(); });
+    });
+
+    proxyReq.on('error', (err) => {
+      console.error('Proxy error:', err.message);
+      if (!res.headersSent) res.status(502).send('Stream unavailable');
+    });
+    proxyReq.on('socket', (socket) => {
+      socket.setTimeout(30000);
+      socket.once('timeout', () => { if (!res.headersSent) { proxyReq.destroy(); res.status(504).send('Timeout'); } });
+      socket.once('connect', () => { socket.setTimeout(0); socket.setKeepAlive(true, 5000); });
+    });
+    proxyReq.end();
+    req.on('close', () => proxyReq.destroy());
+  }
+  doProxy(url, 0);
+}
+
 // ===== XTREAM CODES STREAM ENDPOINTS (must be BEFORE static middleware) =====
 // These intercept /:username/:password/:streamId patterns before Express static catches them
 
@@ -259,7 +340,7 @@ app.get('/:username/:password/:streamId', (req, res, next) => {
   auditLog(user.id, user.username, 'stream_start', `Live channel ${cleanId}: ${channel.name}`, req);
   detectAccountSharing(user.id, user.username, req);
 
-  const streamUrl = channel.stream_url;
+  let streamUrl = channel.stream_url;
 
   // Local file
   if (streamUrl.startsWith('/media/') || streamUrl.startsWith('/hls/')) {
@@ -268,7 +349,8 @@ app.get('/:username/:password/:streamId', (req, res, next) => {
     return res.status(404).send('File not found');
   }
 
-  // External URL — proxy the stream
+  // ALL external URLs — proxy through our server (no redirects!)
+  // IPTV Smarters and most external players do NOT follow redirects
   function fetchStream(url, redirectCount) {
     if (redirectCount > 5) {
       if (!res.headersSent) res.status(502).send('Too many redirects');
@@ -337,7 +419,7 @@ app.get('/:username/:password/:streamId', (req, res, next) => {
 // VOD (movie) stream: /movie/:username/:password/:movieId.mp4
 app.get('/movie/:username/:password/:movieId', (req, res, next) => {
   const { username, password, movieId } = req.params;
-  const cleanId = movieId.replace(/\.(mp4|mkv|avi|ts|m3u8)$/, '');
+  const cleanId = movieId.replace(/\.(mp4|mkv|avi|ts|m3u8|mov)$/, '');
   if (!/^\d+$/.test(cleanId)) return next();
 
   const user = getOne('SELECT * FROM users WHERE username = ?', [username]);
@@ -364,13 +446,14 @@ app.get('/movie/:username/:password/:movieId', (req, res, next) => {
     if (fs.existsSync(filePath)) return res.sendFile(filePath);
     return res.status(404).send('File not found');
   }
-  res.redirect(videoUrl);
+  // Proxy instead of redirect — external players don't follow redirects
+  proxyUrl(videoUrl, req, res, 'video/mp4');
 });
 
 // Series episode stream: /series/:username/:password/:episodeId.mp4
 app.get('/series/:username/:password/:episodeId', (req, res, next) => {
   const { username, password, episodeId } = req.params;
-  const cleanId = episodeId.replace(/\.(mp4|mkv|avi|ts|m3u8)$/, '');
+  const cleanId = episodeId.replace(/\.(mp4|mkv|avi|ts|m3u8|mov)$/, '');
   if (!/^\d+$/.test(cleanId)) return next();
 
   const user = getOne('SELECT * FROM users WHERE username = ?', [username]);
@@ -397,7 +480,8 @@ app.get('/series/:username/:password/:episodeId', (req, res, next) => {
     if (fs.existsSync(filePath)) return res.sendFile(filePath);
     return res.status(404).send('File not found');
   }
-  res.redirect(videoUrl);
+  // Proxy instead of redirect
+  proxyUrl(videoUrl, req, res, 'video/mp4');
 });
 
 // Static files
@@ -575,48 +659,60 @@ app.get('/player_api.php', (req, res) => {
   run('UPDATE users SET last_login = datetime("now") WHERE id = ?', [user.id]);
   auditLog(user.id, user.username, 'api_login', `Action: ${action || 'auth'}`, req);
 
-  // Auth info (no action = login check)
+  // Auth info (no action = login check) — Xtream Codes compatible format
   if (!action) {
     const plan = getOne('SELECT * FROM subscriptions WHERE LOWER(name) = LOWER(?)', [user.subscription]) || {};
+    const host = req.get('host') || 'localhost:' + PORT;
+    const hostname = host.split(':')[0];
+    const port = host.split(':')[1] || (req.protocol === 'https' ? '443' : '80');
+    // exp_date must be Unix timestamp (IPTV Smarters requirement)
+    let expDate = Math.floor(Date.now() / 1000) + 365 * 86400; // default: 1 year from now
+    if (user.expires_at && user.expires_at !== 'Unlimited') {
+      const d = new Date(user.expires_at);
+      if (!isNaN(d.getTime())) expDate = Math.floor(d.getTime() / 1000);
+    }
+    const createdTs = user.created_at ? Math.floor(new Date(user.created_at).getTime() / 1000) : Math.floor(Date.now() / 1000);
+
     return res.json({
       user_info: {
         auth: 1,
         status: 'Active',
         username: user.username,
-        exp_date: user.expires_at || 'Unlimited',
-        is_trial: user.subscription === 'trial' ? 1 : 0,
-        active_cons: getActiveConnectionCount(user.id),
-        created_at: user.created_at,
-        max_connections: user.max_connections || 1,
-        allowed_output_formats: ['m3u8', 'ts', 'rtmp'],
-        subscription: user.subscription,
-        quality: plan.quality || 'SD'
+        password: password,
+        message: 'Welcome',
+        exp_date: String(expDate),
+        is_trial: user.subscription === 'trial' ? '1' : '0',
+        active_cons: String(getActiveConnectionCount(user.id)),
+        created_at: String(createdTs),
+        max_connections: String(user.max_connections || 1),
+        allowed_output_formats: ['m3u8', 'ts', 'rtmp']
       },
       server_info: {
-        url: req.protocol + '://' + req.get('host'),
-        port: PORT,
-        https_port: PORT,
-        server_protocol: 'http',
+        url: req.protocol + '://' + hostname,
+        port: String(port),
+        https_port: String(port),
+        server_protocol: req.protocol,
         rtmp_port: '1935',
         timezone: 'UTC',
         timestamp_now: Math.floor(Date.now() / 1000),
-        time_now: new Date().toISOString()
+        time_now: new Date().toISOString().replace('T', ' ').split('.')[0],
+        epg_url: req.protocol + '://' + req.get('host') + '/xmltv.php'
       }
     });
   }
 
   // Get live channels
   if (action === 'get_live_categories') {
-    const cats = getAll('SELECT DISTINCT category FROM channels WHERE is_active = 1');
+    const cats = getAll("SELECT DISTINCT category FROM channels WHERE is_active = 1 AND name != '__category_placeholder__'");
     return res.json(cats.map((c, i) => ({
-      category_id: i + 1,
+      category_id: String(i + 1),
       category_name: c.category,
       parent_id: 0
     })));
   }
 
   if (action === 'get_live_streams') {
-    const channels = getAll('SELECT * FROM channels WHERE is_active = 1 ORDER BY sort_order');
+    const channels = getAll("SELECT * FROM channels WHERE is_active = 1 AND name != '__category_placeholder__' ORDER BY sort_order");
     const cats = [...new Set(channels.map(c => c.category))];
     const baseUrl = req.protocol + '://' + req.get('host');
     return res.json(channels.map(c => ({
@@ -625,14 +721,16 @@ app.get('/player_api.php', (req, res) => {
       stream_type: 'live',
       stream_id: c.id,
       stream_icon: c.logo_url || '',
-      epg_channel_id: c.epg_id || '',
-      added: c.created_at,
-      category_id: cats.indexOf(c.category) + 1,
-      category_name: c.category,
-      direct_source: `${baseUrl}/${username}/${password}/${c.id}`,
+      epg_channel_id: c.epg_id || null,
+      added: c.created_at ? String(Math.floor(new Date(c.created_at).getTime() / 1000)) : '0',
+      is_adult: '0',
+      category_id: String(cats.indexOf(c.category) + 1),
+      category_ids: [cats.indexOf(c.category) + 1],
       custom_sid: '',
       tv_archive: 0,
-      tv_archive_duration: 0
+      direct_source: '',
+      tv_archive_duration: 0,
+      container_extension: 'ts'
     })));
   }
 
@@ -640,7 +738,7 @@ app.get('/player_api.php', (req, res) => {
   if (action === 'get_vod_categories') {
     const cats = getAll('SELECT DISTINCT category FROM movies WHERE is_active = 1');
     return res.json(cats.map((c, i) => ({
-      category_id: i + 100,
+      category_id: String(i + 100),
       category_name: c.category,
       parent_id: 0
     })));
@@ -649,30 +747,65 @@ app.get('/player_api.php', (req, res) => {
   if (action === 'get_vod_streams') {
     const movies = getAll('SELECT * FROM movies WHERE is_active = 1');
     const cats = [...new Set(movies.map(m => m.category))];
-    const baseUrl = req.protocol + '://' + req.get('host');
     return res.json(movies.map(m => ({
       num: m.id,
       name: m.title,
       stream_type: 'movie',
       stream_id: m.id,
       stream_icon: m.poster_url || '',
-      rating: m.rating || 0,
-      added: m.created_at,
-      category_id: cats.indexOf(m.category) + 100,
-      category_name: m.category,
+      rating: String(m.rating || ''),
+      rating_5based: String(((m.rating || 0) / 2).toFixed(1)),
+      added: m.created_at ? String(Math.floor(new Date(m.created_at).getTime() / 1000)) : '0',
+      is_adult: '0',
+      category_id: String(cats.indexOf(m.category) + 100),
+      category_ids: [cats.indexOf(m.category) + 100],
       container_extension: 'mp4',
-      direct_source: `${baseUrl}/movie/${username}/${password}/${m.id}.mp4`,
-      plot: m.description || '',
-      duration_secs: (m.duration || 0) * 60,
-      year: m.year || ''
+      custom_sid: '',
+      direct_source: ''
     })));
+  }
+
+  // Get VOD info (IPTV Smarters needs this)
+  if (action === 'get_vod_info') {
+    const vodId = req.query.vod_id;
+    const movie = getOne('SELECT * FROM movies WHERE id = ?', [vodId]);
+    if (!movie) return res.status(404).json({ error: 'Movie not found' });
+    return res.json({
+      info: {
+        movie_image: movie.poster_url || '',
+        tmdb_id: '',
+        name: movie.title,
+        year: String(movie.year || ''),
+        description: movie.description || '',
+        plot: movie.description || '',
+        cast: '',
+        director: '',
+        genre: movie.category || '',
+        release_date: movie.year ? movie.year + '-01-01' : '',
+        rating: String(movie.rating || ''),
+        duration_secs: (movie.duration || 0) * 60,
+        duration: movie.duration ? movie.duration + ' min' : '',
+        video: {},
+        audio: {},
+        container_extension: 'mp4'
+      },
+      movie_data: {
+        stream_id: movie.id,
+        name: movie.title,
+        added: movie.created_at ? String(Math.floor(new Date(movie.created_at).getTime() / 1000)) : '0',
+        category_id: '',
+        container_extension: 'mp4',
+        custom_sid: '',
+        direct_source: ''
+      }
+    });
   }
 
   // Get Series
   if (action === 'get_series_categories') {
     const cats = getAll('SELECT DISTINCT category FROM series WHERE is_active = 1');
     return res.json(cats.map((c, i) => ({
-      category_id: i + 200,
+      category_id: String(i + 200),
       category_name: c.category,
       parent_id: 0
     })));
@@ -683,6 +816,7 @@ app.get('/player_api.php', (req, res) => {
     const cats = [...new Set(series.map(s => s.category))];
     return res.json(series.map(s => {
       const epCount = getOne('SELECT COUNT(*) as count FROM episodes WHERE series_id = ?', [s.id]);
+      const seasonCount = getOne('SELECT COUNT(DISTINCT season) as c FROM episodes WHERE series_id = ?', [s.id]);
       return {
         num: s.id,
         name: s.title,
@@ -690,12 +824,18 @@ app.get('/player_api.php', (req, res) => {
         cover: s.poster_url || '',
         plot: s.description || '',
         cast: '',
+        director: '',
         genre: s.category,
         releaseDate: s.year ? s.year.toString() : '',
-        rating: s.rating || 0,
-        category_id: cats.indexOf(s.category) + 200,
-        category_name: s.category,
-        episode_count: epCount ? epCount.count : 0
+        last_modified: s.created_at ? String(Math.floor(new Date(s.created_at).getTime() / 1000)) : '0',
+        rating: String(s.rating || ''),
+        rating_5based: String(((s.rating || 0) / 2).toFixed(1)),
+        category_id: String(cats.indexOf(s.category) + 200),
+        category_ids: [cats.indexOf(s.category) + 200],
+        episode_run_time: '',
+        backdrop_path: [],
+        youtube_trailer: '',
+        seasons: seasonCount ? seasonCount.c : 0
       };
     }));
   }
@@ -705,24 +845,58 @@ app.get('/player_api.php', (req, res) => {
     const series = getOne('SELECT * FROM series WHERE id = ?', [seriesId]);
     if (!series) return res.status(404).json({ error: 'Series not found' });
     const episodes = getAll('SELECT * FROM episodes WHERE series_id = ? ORDER BY season, episode_number', [seriesId]);
-    const baseUrl = req.protocol + '://' + req.get('host');
     const seasonMap = {};
     episodes.forEach(ep => {
-      if (!seasonMap[ep.season]) seasonMap[ep.season] = [];
-      seasonMap[ep.season].push({
-        id: ep.id,
+      const sKey = String(ep.season);
+      if (!seasonMap[sKey]) seasonMap[sKey] = [];
+      seasonMap[sKey].push({
+        id: String(ep.id),
         episode_num: ep.episode_number,
         title: ep.title,
         container_extension: 'mp4',
-        info: { duration_secs: (ep.duration || 0) * 60, plot: ep.description || '' },
-        direct_source: `${baseUrl}/series/${username}/${password}/${ep.id}.mp4`,
-        custom_sid: ''
+        info: {
+          movie_image: '',
+          plot: ep.description || '',
+          releasedate: '',
+          rating: 0,
+          duration_secs: (ep.duration || 0) * 60,
+          duration: ep.duration ? ep.duration + ' min' : '',
+          video: {},
+          audio: {},
+          bitrate: 0,
+          season: ep.season
+        },
+        custom_sid: '',
+        added: '',
+        season: ep.season,
+        direct_source: ''
       });
     });
     return res.json({
-      seasons: Object.keys(seasonMap).map(s => ({ season_number: parseInt(s), episode_count: seasonMap[s].length })),
+      seasons: Object.keys(seasonMap).map(s => ({
+        air_date: '',
+        episode_count: seasonMap[s].length,
+        id: parseInt(s),
+        name: 'Season ' + s,
+        overview: '',
+        season_number: parseInt(s),
+        cover: series.poster_url || '',
+        cover_big: series.poster_url || ''
+      })),
       episodes: seasonMap,
-      info: { name: series.title, cover: series.poster_url || '', plot: series.description || '', genre: series.category, rating: series.rating }
+      info: {
+        name: series.title,
+        cover: series.poster_url || '',
+        plot: series.description || '',
+        genre: series.category,
+        rating: String(series.rating || ''),
+        releaseDate: series.year ? String(series.year) : '',
+        cast: '',
+        director: '',
+        episode_run_time: '',
+        category_id: '',
+        backdrop_path: []
+      }
     });
   }
 
@@ -740,7 +914,7 @@ app.get('/get.php', (req, res) => {
   if (!user.is_active) return res.status(403).send('Account disabled');
 
   const baseUrl = req.protocol + '://' + req.get('host');
-  const channels = getAll('SELECT * FROM channels WHERE is_active = 1 ORDER BY sort_order');
+  const channels = getAll("SELECT * FROM channels WHERE is_active = 1 AND name != '__category_placeholder__' ORDER BY sort_order");
   const movies = getAll('SELECT * FROM movies WHERE is_active = 1');
   const seriesList = getAll('SELECT * FROM series WHERE is_active = 1');
 
@@ -829,12 +1003,197 @@ app.get('/api/movie-channel', (req, res) => {
   });
 });
 
+// ===== AUTO-EXPIRE SUBSCRIPTIONS =====
+function checkExpiredUsers() {
+  const now = new Date().toISOString();
+  const expired = getAll('SELECT id, username, expires_at FROM users WHERE is_active = 1 AND expires_at IS NOT NULL AND expires_at != "Unlimited" AND expires_at < ?', [now]);
+  if (expired.length > 0) {
+    expired.forEach(u => {
+      run('UPDATE users SET is_active = 0 WHERE id = ?', [u.id]);
+      console.log(`⏰ Auto-expired user: ${u.username} (expired: ${u.expires_at})`);
+    });
+  }
+}
+// Check every 5 minutes
+setInterval(checkExpiredUsers, 5 * 60 * 1000);
+
+// ===== EPG (Electronic Program Guide) =====
+// Simple XMLTV EPG generator for IPTV Smarters
+app.get('/xmltv.php', (req, res) => {
+  const channels = getAll("SELECT * FROM channels WHERE is_active = 1 AND name != '__category_placeholder__' ORDER BY sort_order");
+  const now = new Date();
+
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+  xml += '<!DOCTYPE tv SYSTEM "xmltv.dtd">\n';
+  xml += '<tv generator-info-name="IPTV Learning System">\n';
+
+  // Channel definitions
+  channels.forEach(ch => {
+    xml += `  <channel id="${ch.epg_id || ch.id}">\n`;
+    xml += `    <display-name>${escXml(ch.name)}</display-name>\n`;
+    if (ch.logo_url) xml += `    <icon src="${escXml(ch.logo_url)}" />\n`;
+    xml += `  </channel>\n`;
+  });
+
+  // Programs — generate 24h of programs for each channel
+  const genres = ['News', 'Sports', 'Movie', 'Series', 'Documentary', 'Entertainment', 'Kids', 'Music', 'Talk Show', 'Reality'];
+  const programs = ['Morning Show', 'News Update', 'Sports Center', 'Movie Time', 'Series Marathon', 'Documentary Hour', 'Kids Zone', 'Music Hits', 'Talk Tonight', 'Reality Check', 'Live Coverage', 'Special Report', 'Weekend Edition', 'Prime Time', 'Late Night'];
+
+  channels.forEach(ch => {
+    let t = new Date(now);
+    t.setHours(0, 0, 0, 0);
+    for (let i = 0; i < 24; i++) {
+      const start = new Date(t.getTime() + i * 3600000);
+      const stop = new Date(start.getTime() + 3600000);
+      const prog = programs[(ch.id + i) % programs.length];
+      const genre = genres[(ch.id + i) % genres.length];
+      xml += `  <programme start="${epgDate(start)}" stop="${epgDate(stop)}" channel="${ch.epg_id || ch.id}">\n`;
+      xml += `    <title>${escXml(prog)}</title>\n`;
+      xml += `    <desc>${escXml(ch.name + ' - ' + genre + ' Program')}</desc>\n`;
+      xml += `    <category>${escXml(genre)}</category>\n`;
+      xml += `  </programme>\n`;
+    }
+  });
+
+  xml += '</tv>';
+  res.setHeader('Content-Type', 'application/xml');
+  res.send(xml);
+});
+
+function epgDate(d) {
+  return d.getFullYear() +
+    String(d.getMonth()+1).padStart(2,'0') +
+    String(d.getDate()).padStart(2,'0') +
+    String(d.getHours()).padStart(2,'0') +
+    String(d.getMinutes()).padStart(2,'0') +
+    String(d.getSeconds()).padStart(2,'0') + ' +0000';
+}
+function escXml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ===== TMDB INTEGRATION =====
+// Fetch movie/series posters and info from TMDB
+const TMDB_KEY = process.env.TMDB_API_KEY || '';
+
+app.post('/api/admin/tmdb/fetch-posters', async (req, res) => {
+  if (!TMDB_KEY) return res.status(400).json({ error: 'Set TMDB_API_KEY env variable first. Get free key: https://www.themoviedb.org/settings/api (sign up -> Settings -> API)' });
+
+  const movies = getAll('SELECT id, title, year, poster_url FROM movies WHERE (poster_url IS NULL OR poster_url = "")');
+  const series = getAll('SELECT id, title, year, poster_url FROM series WHERE (poster_url IS NULL OR poster_url = "")');
+  let updated = 0;
+
+  for (const m of movies) {
+    try {
+      const url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(m.title)}&year=${m.year||''}`;
+      const data = await fetchJson(url);
+      if (data.results && data.results[0]) {
+        const r = data.results[0];
+        const poster = r.poster_path ? 'https://image.tmdb.org/t/p/w500' + r.poster_path : '';
+        run('UPDATE movies SET poster_url=?, description=?, rating=? WHERE id=?', [
+          poster || null,
+          r.overview || m.description || '',
+          r.vote_average || m.rating || 0,
+          m.id
+        ]);
+        updated++;
+      }
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 260));
+  }
+
+  for (const s of series) {
+    try {
+      const url = `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${encodeURIComponent(s.title)}`;
+      const data = await fetchJson(url);
+      if (data.results && data.results[0]) {
+        const r = data.results[0];
+        const poster = r.poster_path ? 'https://image.tmdb.org/t/p/w500' + r.poster_path : '';
+        run('UPDATE series SET poster_url=?, description=?, rating=? WHERE id=?', [
+          poster || null,
+          r.overview || s.description || '',
+          r.vote_average || s.rating || 0,
+          s.id
+        ]);
+        updated++;
+      }
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 260));
+  }
+
+  res.json({ message: `Updated ${updated} posters from TMDB`, total_checked: movies.length + series.length, updated });
+});
+
+// Fetch single movie/series info from TMDB
+app.get('/api/admin/tmdb/search', async (req, res) => {
+  if (!TMDB_KEY) return res.status(400).json({ error: 'Set TMDB_API_KEY env variable' });
+  const { query, type, year } = req.query;
+  if (!query) return res.status(400).json({ error: 'query parameter required' });
+  try {
+    const t = type === 'series' ? 'tv' : 'movie';
+    const url = `https://api.themoviedb.org/3/search/${t}?api_key=${TMDB_KEY}&query=${encodeURIComponent(query)}&year=${year||''}`;
+    const data = await fetchJson(url);
+    const results = (data.results || []).slice(0, 10).map(r => ({
+      title: r.title || r.name,
+      year: (r.release_date || r.first_air_date || '').split('-')[0],
+      overview: r.overview,
+      rating: r.vote_average,
+      poster: r.poster_path ? 'https://image.tmdb.org/t/p/w500' + r.poster_path : '',
+      backdrop: r.backdrop_path ? 'https://image.tmdb.org/t/p/w780' + r.backdrop_path : '',
+      tmdb_id: r.id
+    }));
+    res.json(results);
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers: { 'User-Agent': 'IPTV-Learning/1.0' } }, (r) => {
+      let d = ''; r.on('data', c => d += c);
+      r.on('end', () => { try { resolve(JSON.parse(d)); } catch(e) { reject(e); } });
+    }).on('error', reject);
+  });
+}
+
+// ===== EXPORT USERS CSV (server-side) =====
+app.get('/api/admin/users/export/csv', (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Auth required' });
+  const jwt = require('jsonwebtoken');
+  try { jwt.verify(token, process.env.JWT_SECRET || 'iptv-learning-secret-key-2024'); } catch(e) { return res.status(401).json({ error: 'Invalid token' }); }
+
+  const users = getAll('SELECT * FROM users ORDER BY id');
+  let csv = 'ID,Username,Role,Subscription,Expires,MaxConnections,Status,LastLogin\n';
+  users.forEach(u => {
+    csv += `${u.id},"${u.username}",${u.role},${u.subscription},${u.expires_at||'Unlimited'},${u.max_connections||1},${u.is_active?'Active':'Blocked'},"${u.last_login||'Never'}"\n`;
+  });
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename=users.csv');
+  res.send(csv);
+});
+
 // Root redirect
 app.get('/', (req, res) => res.redirect('/admin'));
 
 // Start
 async function start() {
   await init();
+
+  // HTTPS support — if cert files exist, start HTTPS too
+  const SSL_DIR = path.join(BASE_DIR, 'ssl');
+  const certPath = path.join(SSL_DIR, 'cert.pem');
+  const keyPath = path.join(SSL_DIR, 'key.pem');
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    try {
+      const httpsServer = https.createServer({
+        cert: fs.readFileSync(certPath),
+        key: fs.readFileSync(keyPath)
+      }, app);
+      const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+      httpsServer.listen(HTTPS_PORT, () => {
+        console.log(`   🔒 HTTPS:       https://localhost:${HTTPS_PORT}`);
+      });
+    } catch(e) { console.error('HTTPS setup failed:', e.message); }
+  }
+
   app.listen(PORT, () => {
     console.log('');
     console.log('='.repeat(55));
@@ -861,6 +1220,9 @@ async function start() {
     console.log('   Admin Login:   admin / admin123');
     console.log('='.repeat(55));
     console.log('');
+
+    // Check expired users on startup
+    checkExpiredUsers();
 
     // Start all enabled restreams
     restream.startAllEnabled();
