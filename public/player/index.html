@@ -392,7 +392,20 @@ async function startApp(userInfo) {
   document.getElementById('loginPage').style.display = 'none';
   document.getElementById('app').style.display = 'block';
   document.getElementById('dispUser').textContent = userInfo.username || '';
-  const sub = userInfo.subscription || userInfo.sub || 'trial';
+  // Fix subscription display — Xtream returns is_trial, exp_date; Direct returns subscription
+  let sub = userInfo.subscription || userInfo.sub || '';
+  if (!sub || sub === 'undefined') {
+    // Xtream mode: determine from exp_date and is_trial
+    if (userInfo.is_trial === '1') sub = 'trial';
+    else if (userInfo.exp_date) {
+      const exp = parseInt(userInfo.exp_date);
+      const now = Math.floor(Date.now()/1000);
+      const daysLeft = Math.floor((exp - now) / 86400);
+      if (daysLeft > 300) sub = 'yearly';
+      else if (daysLeft > 100) sub = '6months';
+      else sub = 'monthly';
+    } else sub = 'yearly';
+  }
   const badge = document.getElementById('dispSub');
   badge.textContent = sub;
   badge.className = 'badge badge-' + sub;
@@ -409,26 +422,48 @@ async function loadAllContent() {
   try {
     // If no valid login method, try direct API with server URL
     if (loginMode === 'xtream' && xtreamCredentials && xtreamCredentials.host) {
-      // Xtream API
-      const [chData, mvData, serData] = await Promise.all([
+      // Xtream API — fetch categories first, then content
+      const [liveCats, vodCats, serCats, chData, mvData, serData] = await Promise.all([
+        api('action=get_live_categories'),
+        api('action=get_vod_categories'),
+        api('action=get_series_categories'),
         api('action=get_live_streams'),
         api('action=get_vod_streams'),
         api('action=get_series')
       ]);
-      channels = (Array.isArray(chData) ? chData : []).map(c => ({
-        id: c.stream_id, name: c.name, category: c.category_name||'general',
-        stream_url: c.direct_source||'', logo_url: c.stream_icon||'',
-        backup_url: c.backup_url||'', backup_url2: c.backup_url2||''
-      }));
+      // Build category_id → category_name maps
+      const liveCatMap = {};
+      (Array.isArray(liveCats)?liveCats:[]).forEach(c => { liveCatMap[c.category_id] = c.category_name; });
+      const vodCatMap = {};
+      (Array.isArray(vodCats)?vodCats:[]).forEach(c => { vodCatMap[c.category_id] = c.category_name; });
+      const serCatMap = {};
+      (Array.isArray(serCats)?serCats:[]).forEach(c => { serCatMap[c.category_id] = c.category_name; });
+
+      channels = (Array.isArray(chData) ? chData : []).map(c => {
+        // Build stream URL: use direct_source if available, otherwise build Xtream URL
+        let streamUrl = c.direct_source || '';
+        if ((!streamUrl || streamUrl === '') && xtreamCredentials) {
+          const {host, username, password} = xtreamCredentials;
+          streamUrl = `${host}/${username}/${password}/${c.stream_id}`;
+        }
+        return {
+          id: c.stream_id, name: c.name,
+          category: liveCatMap[c.category_id] || c.category_name || 'general',
+          stream_url: streamUrl, logo_url: c.stream_icon||'',
+          backup_url: c.backup_url||'', backup_url2: c.backup_url2||''
+        };
+      });
       movies = (Array.isArray(mvData) ? mvData : []).map(m => ({
-        id: m.stream_id, title: m.name, category: m.category_name||'general',
+        id: m.stream_id, title: m.name,
+        category: vodCatMap[m.category_id] || m.category_name || 'general',
         video_url: m.direct_source||'', poster_url: m.stream_icon||'',
         backup_url: m.backup_url||'', backup_url2: m.backup_url2||'',
         description: m.plot||'', rating: m.rating||0, year: m.year||'',
         duration: m.duration_secs ? Math.round(m.duration_secs/60) : 0
       }));
       series = (Array.isArray(serData) ? serData : []).map(s => ({
-        id: s.series_id, title: s.name, category: s.category_name||s.genre||'',
+        id: s.series_id, title: s.name,
+        category: serCatMap[s.category_id] || s.category_name || s.genre || '',
         poster_url: s.cover||'', description: s.plot||'', rating: s.rating||0,
         year: s.releaseDate||'', episode_count: s.episode_count||0
       }));
@@ -567,12 +602,20 @@ async function openSeries(id) {
       seasons = {};
       if(data.episodes) {
         Object.keys(data.episodes).forEach(sn => {
-          seasons[sn] = data.episodes[sn].map(ep => ({
-            id: ep.id, episode_number: ep.episode_num, title: ep.title,
-            duration: ep.info?.duration_secs ? Math.round(ep.info.duration_secs/60) : 0,
-            video_url: ep.direct_source||'', backup_url: ep.backup_url||'', backup_url2: ep.backup_url2||'',
-            description: ep.info?.plot||''
-          }));
+          seasons[sn] = data.episodes[sn].map(ep => {
+            // Build Xtream stream URL for episode
+            let epUrl = ep.direct_source || '';
+            if ((!epUrl || epUrl === '') && xtreamCredentials) {
+              const {host, username, password} = xtreamCredentials;
+              epUrl = `${host}/series/${username}/${password}/${ep.id}.mp4`;
+            }
+            return {
+              id: ep.id, episode_number: ep.episode_num, title: ep.title,
+              duration: ep.info?.duration_secs ? Math.round(ep.info.duration_secs/60) : 0,
+              video_url: epUrl, backup_url: ep.backup_url||'', backup_url2: ep.backup_url2||'',
+              description: ep.info?.plot||''
+            };
+          });
         });
       }
     } else {
@@ -641,7 +684,6 @@ function escape(s) { return (s||'').replace(/'/g, "\\'").replace(/"/g, '&quot;')
 function playLive(id) {
   const ch = channels.find(c=>c.id===id);
   if(!ch) return;
-  // Store backup URLs for fallback
   window._currentBackups = [ch.backup_url, ch.backup_url2].filter(u => u);
   window._currentBackupIndex = 0;
   playVideo(ch.stream_url||'', ch.name, 'Live - '+(catLabels[ch.category]||ch.category));
@@ -652,7 +694,13 @@ function playMovie(id) {
   if(!m) return;
   window._currentBackups = [m.backup_url, m.backup_url2].filter(u => u);
   window._currentBackupIndex = 0;
-  playVideo(m.video_url||'', m.title, m.description || m.category);
+  let url = m.video_url || '';
+  // In Xtream mode, build the movie stream URL
+  if (loginMode === 'xtream' && xtreamCredentials && (!url || url === '')) {
+    const {host, username, password} = xtreamCredentials;
+    url = `${host}/movie/${username}/${password}/${id}.mp4`;
+  }
+  playVideo(url, m.title, m.description || m.category);
 }
 
 function playEpisode(seriesTitle, epNum, epTitle, url, desc, backup, backup2) {

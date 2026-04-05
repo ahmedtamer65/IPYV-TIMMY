@@ -349,6 +349,11 @@ app.get('/:username/:password/:streamId', (req, res, next) => {
     return res.status(404).send('File not found');
   }
 
+  // HLS streams (.m3u8) — proxy the manifest and segments properly
+  if (streamUrl.includes('.m3u8')) {
+    return proxyUrl(streamUrl, req, res, 'application/vnd.apple.mpegurl');
+  }
+
   // ALL external URLs — proxy through our server (no redirects!)
   // IPTV Smarters and most external players do NOT follow redirects
   function fetchStream(url, redirectCount) {
@@ -680,6 +685,7 @@ app.get('/player_api.php', (req, res) => {
         username: user.username,
         password: password,
         message: 'Welcome',
+        subscription: user.subscription || 'trial',
         exp_date: String(expDate),
         is_trial: user.subscription === 'trial' ? '1' : '0',
         active_cons: String(getActiveConnectionCount(user.id)),
@@ -715,23 +721,27 @@ app.get('/player_api.php', (req, res) => {
     const channels = getAll("SELECT * FROM channels WHERE is_active = 1 AND name != '__category_placeholder__' ORDER BY sort_order");
     const cats = [...new Set(channels.map(c => c.category))];
     const baseUrl = req.protocol + '://' + req.get('host');
-    return res.json(channels.map(c => ({
-      num: c.id,
-      name: c.name,
-      stream_type: 'live',
-      stream_id: c.id,
-      stream_icon: c.logo_url || '',
-      epg_channel_id: c.epg_id || null,
-      added: c.created_at ? String(Math.floor(new Date(c.created_at).getTime() / 1000)) : '0',
-      is_adult: '0',
-      category_id: String(cats.indexOf(c.category) + 1),
-      category_ids: [cats.indexOf(c.category) + 1],
-      custom_sid: '',
-      tv_archive: 0,
-      direct_source: '',
-      tv_archive_duration: 0,
-      container_extension: 'ts'
-    })));
+    return res.json(channels.map(c => {
+      // Determine container extension from URL
+      const ext = c.stream_url && c.stream_url.includes('.m3u8') ? 'm3u8' : 'ts';
+      return {
+        num: c.id,
+        name: c.name,
+        stream_type: 'live',
+        stream_id: c.id,
+        stream_icon: c.logo_url || '',
+        epg_channel_id: c.epg_id || null,
+        added: c.created_at ? String(Math.floor(new Date(c.created_at).getTime() / 1000)) : '0',
+        is_adult: '0',
+        category_id: String(cats.indexOf(c.category) + 1),
+        category_ids: [cats.indexOf(c.category) + 1],
+        custom_sid: '',
+        tv_archive: 0,
+        direct_source: c.stream_url || '',
+        tv_archive_duration: 0,
+        container_extension: ext
+      };
+    }));
   }
 
   // Get VOD (movies)
