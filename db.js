@@ -223,8 +223,19 @@ async function init() {
     year INTEGER,
     rating REAL,
     is_active INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    cast_list TEXT,
+    director TEXT,
+    genre TEXT,
+    backdrop_url TEXT,
+    tmdb_id INTEGER
   )`);
+  // Migration: add new columns if they don't exist
+  try { db.run('ALTER TABLE movies ADD COLUMN cast_list TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN director TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN genre TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN backdrop_url TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN tmdb_id INTEGER'); } catch(e) {}
 
   // Series
   db.run(`CREATE TABLE IF NOT EXISTS series (
@@ -237,8 +248,18 @@ async function init() {
     year INTEGER,
     rating REAL,
     is_active INTEGER DEFAULT 1,
-    created_at TEXT DEFAULT (datetime('now'))
+    created_at TEXT DEFAULT (datetime('now')),
+    cast_list TEXT,
+    director TEXT,
+    genre TEXT,
+    backdrop_url TEXT,
+    tmdb_id INTEGER
   )`);
+  try { db.run('ALTER TABLE series ADD COLUMN cast_list TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN director TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN genre TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN backdrop_url TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN tmdb_id INTEGER'); } catch(e) {}
 
   // Episodes
   db.run(`CREATE TABLE IF NOT EXISTS episodes (

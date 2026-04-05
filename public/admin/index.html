@@ -746,7 +746,7 @@ function openMovieModal(id=null) {
   document.getElementById('modalContent').innerHTML = `
     <h3>${m?'Edit Movie':'Add Movie'}</h3>
     <label>Title</label><input id="m_mtitle" value="${m?.title||''}">
-    <label>Description</label><textarea id="m_mdesc">${m?.description||''}</textarea>
+    <label>Description</label><textarea id="m_mdesc" rows="3">${m?.description||''}</textarea>
     <div class="form-row">
       <div><label>Category</label><select id="m_mcat">${cats.map(c=>`<option value="${c}" ${m?.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
       <div><label>Year</label><input id="m_myear" type="number" value="${m?.year||2024}"></div>
@@ -755,8 +755,17 @@ function openMovieModal(id=null) {
       <div><label>Duration (min)</label><input id="m_mdur" type="number" value="${m?.duration||''}"></div>
       <div><label>Rating</label><input id="m_mrating" type="number" step="0.1" max="10" value="${m?.rating||''}"></div>
     </div>
+    <label>Cast</label><input id="m_mcast" value="${m?.cast_list||''}" placeholder="Actor 1, Actor 2, Actor 3...">
+    <div class="form-row">
+      <div style="flex:1"><label>Director</label><input id="m_mdir" value="${m?.director||''}" placeholder="Director name"></div>
+      <div style="flex:1"><label>Genre</label><input id="m_mgenre" value="${m?.genre||''}" placeholder="Action, Drama..."></div>
+    </div>
     <label>Video URL</label><input id="m_murl" value="${m?.video_url||''}" placeholder="http://... or /media/...">
-    <label>Poster URL</label><input id="m_mposter" value="${m?.poster_url||''}" placeholder="Optional">
+    <div class="form-row">
+      <div style="flex:2"><label>Poster URL</label><input id="m_mposter" value="${m?.poster_url||''}" placeholder="Optional"></div>
+      <div style="flex:2"><label>Backdrop URL</label><input id="m_mbackdrop" value="${m?.backdrop_url||''}" placeholder="Optional - wide image"></div>
+    </div>
+    ${m?.poster_url ? `<div style="margin:8px 0;text-align:center"><img src="${m.poster_url}" style="max-height:120px;border-radius:8px" onerror="this.style.display='none'"></div>` : ''}
     <div class="modal-actions">
       <button class="btn btn-primary" data-action="saveMovie" data-id="${m?.id||'null'}">${m?'Update':'Create'}</button>
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
@@ -774,7 +783,11 @@ async function saveMovie(id) {
     duration: parseInt(document.getElementById('m_mdur').value)||null,
     rating: parseFloat(document.getElementById('m_mrating').value)||null,
     video_url: document.getElementById('m_murl').value,
-    poster_url: document.getElementById('m_mposter').value
+    poster_url: document.getElementById('m_mposter').value,
+    cast_list: document.getElementById('m_mcast').value,
+    director: document.getElementById('m_mdir').value,
+    genre: document.getElementById('m_mgenre').value,
+    backdrop_url: document.getElementById('m_mbackdrop').value
   };
   await api(id?`/api/admin/movies/${id}`:'/api/admin/movies',id?'PUT':'POST',body);
   closeModal(); await loadMovies();

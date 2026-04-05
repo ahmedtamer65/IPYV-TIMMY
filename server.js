@@ -14,8 +14,13 @@ const envPath = path.join(BASE_DIR_ENV, '.env');
 if (fs.existsSync(envPath)) {
   fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
     const [key, ...vals] = line.trim().split('=');
-    if (key && !key.startsWith('#') && vals.length) process.env[key] = vals.join('=');
+    if (key && !key.startsWith('#') && vals.length) {
+      process.env[key] = vals.join('=');
+    }
   });
+  console.log('.env loaded | TMDB_API_KEY:', process.env.TMDB_API_KEY ? 'SET (' + process.env.TMDB_API_KEY.substring(0,8) + '...)' : 'NOT SET');
+} else {
+  console.log('.env file not found at:', envPath);
 }
 
 const app = express();
@@ -783,20 +788,21 @@ app.get('/player_api.php', (req, res) => {
     return res.json({
       info: {
         movie_image: movie.poster_url || '',
-        tmdb_id: '',
+        tmdb_id: String(movie.tmdb_id || ''),
         name: movie.title,
         year: String(movie.year || ''),
         description: movie.description || '',
         plot: movie.description || '',
-        cast: '',
-        director: '',
-        genre: movie.category || '',
+        cast: movie.cast_list || '',
+        director: movie.director || '',
+        genre: movie.genre || movie.category || '',
         release_date: movie.year ? movie.year + '-01-01' : '',
         rating: String(movie.rating || ''),
         duration_secs: (movie.duration || 0) * 60,
         duration: movie.duration ? movie.duration + ' min' : '',
         video: {},
         audio: {},
+        backdrop_path: movie.backdrop_url ? [movie.backdrop_url] : [],
         container_extension: 'mp4'
       },
       movie_data: {
@@ -898,14 +904,15 @@ app.get('/player_api.php', (req, res) => {
         name: series.title,
         cover: series.poster_url || '',
         plot: series.description || '',
-        genre: series.category,
+        genre: series.genre || series.category || '',
         rating: String(series.rating || ''),
         releaseDate: series.year ? String(series.year) : '',
-        cast: '',
-        director: '',
+        cast: series.cast_list || '',
+        director: series.director || '',
         episode_run_time: '',
         category_id: '',
-        backdrop_path: []
+        tmdb_id: String(series.tmdb_id || ''),
+        backdrop_path: series.backdrop_url ? [series.backdrop_url] : []
       }
     });
   }
@@ -1082,58 +1089,94 @@ function escXml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&l
 
 // ===== TMDB INTEGRATION =====
 // Fetch movie/series posters and info from TMDB
-const TMDB_KEY = process.env.TMDB_API_KEY || '';
+function getTmdbKey() { return process.env.TMDB_API_KEY || ''; }
 
 app.post('/api/admin/tmdb/fetch-posters', async (req, res) => {
+  const TMDB_KEY = getTmdbKey();
   if (!TMDB_KEY) return res.status(400).json({ error: 'Set TMDB_API_KEY env variable first. Get free key: https://www.themoviedb.org/settings/api (sign up -> Settings -> API)' });
 
-  const movies = getAll('SELECT id, title, year, poster_url FROM movies WHERE (poster_url IS NULL OR poster_url = "")');
-  const series = getAll('SELECT id, title, year, poster_url FROM series WHERE (poster_url IS NULL OR poster_url = "")');
+  // Fetch ALL movies & series (not just missing posters) to get full data
+  const movies = getAll('SELECT id, title, year, tmdb_id FROM movies');
+  const seriesList = getAll('SELECT id, title, year, tmdb_id FROM series');
   let updated = 0;
+  const errors = [];
 
+  // Process movies
   for (const m of movies) {
     try {
-      const url = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(m.title)}&year=${m.year||''}`;
-      const data = await fetchJson(url);
-      if (data.results && data.results[0]) {
-        const r = data.results[0];
-        const poster = r.poster_path ? 'https://image.tmdb.org/t/p/w500' + r.poster_path : '';
-        run('UPDATE movies SET poster_url=?, description=?, rating=? WHERE id=?', [
-          poster || null,
-          r.overview || m.description || '',
-          r.vote_average || m.rating || 0,
-          m.id
-        ]);
-        updated++;
-      }
-    } catch(e) {}
-    await new Promise(r => setTimeout(r, 260));
+      // Search for movie
+      const searchUrl = `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_KEY}&query=${encodeURIComponent(m.title)}&year=${m.year||''}`;
+      const searchData = await fetchJson(searchUrl);
+      if (!searchData.results || !searchData.results[0]) continue;
+      const tmdbId = m.tmdb_id || searchData.results[0].id;
+      const r = searchData.results[0];
+
+      // Get detailed info with credits (cast & crew)
+      const detailUrl = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=credits`;
+      const detail = await fetchJson(detailUrl);
+
+      const poster = detail.poster_path ? 'https://image.tmdb.org/t/p/w500' + detail.poster_path : '';
+      const backdrop = detail.backdrop_path ? 'https://image.tmdb.org/t/p/w780' + detail.backdrop_path : '';
+      const castArr = (detail.credits?.cast || []).slice(0, 10).map(c => c.name);
+      const director = (detail.credits?.crew || []).find(c => c.job === 'Director');
+      const genres = (detail.genres || []).map(g => g.name).join(', ');
+
+      run(`UPDATE movies SET poster_url=?, description=?, rating=?, cast_list=?, director=?, genre=?, backdrop_url=?, tmdb_id=?, duration=CASE WHEN duration IS NULL OR duration=0 THEN ? ELSE duration END WHERE id=?`, [
+        poster || null,
+        detail.overview || '',
+        detail.vote_average || 0,
+        castArr.join(', ') || '',
+        director ? director.name : '',
+        genres || '',
+        backdrop || '',
+        tmdbId,
+        detail.runtime || 0,
+        m.id
+      ]);
+      updated++;
+    } catch(e) { errors.push(m.title + ': ' + e.message); }
+    await new Promise(r => setTimeout(r, 300)); // Rate limit
   }
 
-  for (const s of series) {
+  // Process series
+  for (const s of seriesList) {
     try {
-      const url = `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${encodeURIComponent(s.title)}`;
-      const data = await fetchJson(url);
-      if (data.results && data.results[0]) {
-        const r = data.results[0];
-        const poster = r.poster_path ? 'https://image.tmdb.org/t/p/w500' + r.poster_path : '';
-        run('UPDATE series SET poster_url=?, description=?, rating=? WHERE id=?', [
-          poster || null,
-          r.overview || s.description || '',
-          r.vote_average || s.rating || 0,
-          s.id
-        ]);
-        updated++;
-      }
-    } catch(e) {}
-    await new Promise(r => setTimeout(r, 260));
+      const searchUrl = `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_KEY}&query=${encodeURIComponent(s.title)}`;
+      const searchData = await fetchJson(searchUrl);
+      if (!searchData.results || !searchData.results[0]) continue;
+      const tmdbId = s.tmdb_id || searchData.results[0].id;
+
+      const detailUrl = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=credits`;
+      const detail = await fetchJson(detailUrl);
+
+      const poster = detail.poster_path ? 'https://image.tmdb.org/t/p/w500' + detail.poster_path : '';
+      const backdrop = detail.backdrop_path ? 'https://image.tmdb.org/t/p/w780' + detail.backdrop_path : '';
+      const castArr = (detail.credits?.cast || []).slice(0, 10).map(c => c.name);
+      const creator = (detail.created_by || []).map(c => c.name).join(', ');
+      const genres = (detail.genres || []).map(g => g.name).join(', ');
+
+      run(`UPDATE series SET poster_url=?, description=?, rating=?, cast_list=?, director=?, genre=?, backdrop_url=?, tmdb_id=? WHERE id=?`, [
+        poster || null,
+        detail.overview || '',
+        detail.vote_average || 0,
+        castArr.join(', ') || '',
+        creator || '',
+        genres || '',
+        backdrop || '',
+        tmdbId,
+        s.id
+      ]);
+      updated++;
+    } catch(e) { errors.push(s.title + ': ' + e.message); }
+    await new Promise(r => setTimeout(r, 300));
   }
 
-  res.json({ message: `Updated ${updated} posters from TMDB`, total_checked: movies.length + series.length, updated });
+  res.json({ message: `Updated ${updated}/${movies.length + seriesList.length} from TMDB (with cast, director, genres)`, updated, errors: errors.slice(0, 5) });
 });
 
 // Fetch single movie/series info from TMDB
 app.get('/api/admin/tmdb/search', async (req, res) => {
+  const TMDB_KEY = getTmdbKey();
   if (!TMDB_KEY) return res.status(400).json({ error: 'Set TMDB_API_KEY env variable' });
   const { query, type, year } = req.query;
   if (!query) return res.status(400).json({ error: 'query parameter required' });
