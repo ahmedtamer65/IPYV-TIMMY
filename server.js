@@ -1175,8 +1175,7 @@ app.get('/live/movies.m3u8', (req, res) => {
   res.redirect(currentMovie.video_url);
 });
 
-// Custom 24/7 channel — plays specific video URLs in order
-// Returns M3U8 playlist so videos play one after another
+// Custom 24/7 channel — plays video URLs in rotation
 app.get('/live/custom/:channelId', (req, res) => {
   const { channelId } = req.params;
   const cleanId = channelId.replace(/\.(m3u8|mp4|ts)$/, '');
@@ -1194,35 +1193,50 @@ app.get('/live/custom/:channelId', (req, res) => {
   const urls = JSON.parse(channel.video_urls || '[]').filter(u => u && u.trim());
   if (urls.length === 0) return res.status(404).send('No videos in this channel');
 
-  const baseUrl = req.protocol + '://' + req.get('host');
+  // If index specified, play that video. Otherwise rotate by time (3hr fallback for external players)
+  let currentIndex;
+  if (req.query.index !== undefined) {
+    currentIndex = parseInt(req.query.index) % urls.length;
+  } else {
+    const now = Math.floor(Date.now() / 1000);
+    currentIndex = Math.floor(now / 10800) % urls.length;
+  }
+  const currentUrl = urls[currentIndex];
 
-  // Generate M3U playlist with all videos in order (loops)
-  let m3u = '#EXTM3U\n';
-  // Repeat playlist 50 times for continuous loop effect
-  for (let loop = 0; loop < 50; loop++) {
-    urls.forEach((url, i) => {
-      m3u += `#EXTINF:-1,${channel.name} - Video ${i + 1}\n`;
-      m3u += `${baseUrl}/live/custom/${cleanId}/video/${i}?username=${username || ''}&password=${pass || ''}\n`;
-    });
+  // Return info header so player knows total videos and next index
+  res.setHeader('X-Total-Videos', String(urls.length));
+  res.setHeader('X-Current-Index', String(currentIndex));
+  res.setHeader('X-Next-Index', String((currentIndex + 1) % urls.length));
+  res.setHeader('Access-Control-Expose-Headers', 'X-Total-Videos,X-Current-Index,X-Next-Index');
+
+  // Check FFmpeg watermark for custom 24/7 channels
+  const ccFfmpeg = getOne("SELECT value FROM site_settings WHERE key='wm_ffmpeg'");
+  if (ccFfmpeg && ccFfmpeg.value === '1') {
+    const wmUrl = channel.watermark_url || '';
+    const globalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
+    const globalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_channels'");
+    const useWm = channel.watermark !== 0 && (globalWmOn ? globalWmOn.value !== '0' : true) && (wmUrl || (globalWm && globalWm.value));
+    if (useWm) {
+      const finalWmUrl = wmUrl || (globalWm ? globalWm.value : '');
+      if (finalWmUrl) {
+        const gp = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
+        const go = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
+        const gs = getOne("SELECT value FROM site_settings WHERE key='watermark_size'");
+        return proxyWithWatermark(currentUrl, req, res, {
+          url: finalWmUrl,
+          position: (gp ? gp.value : 'top-right'),
+          opacity: (go ? parseFloat(go.value) : 0.8),
+          size: (gs ? parseInt(gs.value) : 120)
+        });
+      }
+    }
   }
 
-  res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.send(m3u);
-});
-
-// Serve individual video from custom 24/7 channel
-app.get('/live/custom/:channelId/video/:index', (req, res) => {
-  const cleanId = req.params.channelId.replace(/\.(m3u8|mp4|ts)$/, '');
-  const index = parseInt(req.params.index) || 0;
-
-  const channel = getOne('SELECT * FROM custom_channels WHERE id = ? AND is_active = 1', [cleanId]);
-  if (!channel) return res.status(404).send('Channel not found');
-
-  const urls = JSON.parse(channel.video_urls || '[]').filter(u => u && u.trim());
-  if (urls.length === 0 || index >= urls.length) return res.status(404).send('Video not found');
-
-  proxyUrl(urls[index], req, res, 'video/mp4');
+  // If URL is m3u8, redirect. Otherwise proxy.
+  if (currentUrl.includes('.m3u8')) {
+    return res.redirect(currentUrl);
+  }
+  proxyUrl(currentUrl, req, res, 'video/mp4');
 });
 
 // ===== CUSTOM 24/7 CHANNELS API =====

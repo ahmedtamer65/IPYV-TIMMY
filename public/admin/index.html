@@ -840,11 +840,17 @@ async function deleteChannel(id) { if(!confirm('Delete?'))return; await api(`/ap
 
 function openChannelModal(id=null) {
   const c = id ? allChannels.find(x=>x.id===id) : null;
-  const cats = ['bein-sports','bein-premium','bein-movies','bein-entertainment','news','sports','entertainment','movies-channels','kids','music','documentary','religious','general'];
+  const existingCats = [...new Set(allChannels.map(ch=>ch.category).filter(Boolean))];
+  const defaultCats = ['bein-sports','bein-premium','bein-movies','bein-entertainment','news','sports','entertainment','movies-channels','kids','music','documentary','religious','general'];
+  const cats = [...new Set([...existingCats, ...defaultCats])];
   document.getElementById('modalContent').innerHTML = `
     <h3>${c?'Edit Channel':'Add Channel'}</h3>
     <label>Channel Name</label><input id="m_chname" value="${c?.name||''}">
-    <label>Category</label><select id="m_chcat">${cats.map(cat=>`<option value="${cat}" ${c?.category===cat?'selected':''}>${cat}</option>`).join('')}</select>
+    <label>Category</label>
+    <select id="m_chcat" onchange="if(this.value==='__new__'){const n=prompt('Enter new category name:');if(n){const o=document.createElement('option');o.value=n;o.textContent=n;this.insertBefore(o,this.lastElementChild);this.value=n;}else{this.value='${c?.category||cats[0]}';}}">
+      ${cats.map(cat=>`<option value="${cat}" ${c?.category===cat?'selected':''}>${cat}</option>`).join('')}
+      <option value="__new__">+ Add New Category...</option>
+    </select>
     <label>Stream URL (Main)</label><input id="m_churl" value="${c?.stream_url||''}" placeholder="http://... or rtmp://...">
     <label>Backup URL 1</label><input id="m_chbackup" value="${c?.backup_url||''}" placeholder="Backup stream if main fails">
     <label>Backup URL 2</label><input id="m_chbackup2" value="${c?.backup_url2||''}" placeholder="Second backup (optional)">
@@ -925,13 +931,18 @@ async function deleteMovie(id) { if(!confirm('Delete?'))return; await api(`/api/
 
 function openMovieModal(id=null) {
   const m = id ? allMovies.find(x=>x.id===id) : null;
-  const cats = ['action','comedy','drama','horror','sci-fi','animation','arabic','documentary','thriller','romance'];
+  const existingMCats = [...new Set(allMovies.map(mv=>mv.category).filter(Boolean))];
+  const defaultMCats = ['action','comedy','drama','horror','sci-fi','animation','arabic','documentary','thriller','romance'];
+  const cats = [...new Set([...existingMCats, ...defaultMCats])];
   document.getElementById('modalContent').innerHTML = `
     <h3>${m?'Edit Movie':'Add Movie'}</h3>
     <label>Title</label><input id="m_mtitle" value="${m?.title||''}">
     <label>Description</label><textarea id="m_mdesc" rows="3">${m?.description||''}</textarea>
     <div class="form-row">
-      <div><label>Category</label><select id="m_mcat">${cats.map(c=>`<option value="${c}" ${m?.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div><label>Category</label><select id="m_mcat" onchange="if(this.value==='__new__'){const n=prompt('Enter new category name:');if(n){const o=document.createElement('option');o.value=n;o.textContent=n;this.insertBefore(o,this.lastElementChild);this.value=n;}else{this.value='${m?.category||'action'}';}}">
+        ${cats.map(c=>`<option value="${c}" ${m?.category===c?'selected':''}>${c}</option>`).join('')}
+        <option value="__new__">+ Add New Category...</option>
+      </select></div>
       <div><label>Year</label><input id="m_myear" type="number" value="${m?.year||2024}"></div>
     </div>
     <div class="form-row">
@@ -1023,13 +1034,18 @@ async function deleteSeries(id) { if(!confirm('Delete series and all episodes?')
 
 function openSeriesModal(id=null) {
   const s = id ? allSeries.find(x=>x.id===id) : null;
-  const cats = ['drama','action','comedy','thriller','sci-fi','horror','arabic-series','documentary','animation'];
+  const existingSCats = [...new Set(allSeries.map(sr=>sr.category).filter(Boolean))];
+  const defaultSCats = ['drama','action','comedy','thriller','sci-fi','horror','arabic-series','documentary','animation'];
+  const cats = [...new Set([...existingSCats, ...defaultSCats])];
   document.getElementById('modalContent').innerHTML = `
     <h3>${s?'Edit Series':'Add Series'}</h3>
     <label>Title</label><input id="m_stitle" value="${s?.title||''}">
     <label>Description</label><textarea id="m_sdesc">${s?.description||''}</textarea>
     <div class="form-row">
-      <div><label>Category</label><select id="m_scat">${cats.map(c=>`<option value="${c}" ${s?.category===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div><label>Category</label><select id="m_scat" onchange="if(this.value==='__new__'){const n=prompt('Enter new category name:');if(n){const o=document.createElement('option');o.value=n;o.textContent=n;this.insertBefore(o,this.lastElementChild);this.value=n;}else{this.value='${s?.category||'drama'}';}}">
+        ${cats.map(c=>`<option value="${c}" ${s?.category===c?'selected':''}>${c}</option>`).join('')}
+        <option value="__new__">+ Add New Category...</option>
+      </select></div>
       <div><label>Total Seasons</label><input id="m_sseasons" type="number" value="${s?.total_seasons||1}" min="1"></div>
     </div>
     <div class="form-row">
