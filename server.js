@@ -1146,7 +1146,7 @@ app.get('/get.php', (req, res) => {
     const urls = JSON.parse(cc.video_urls || '[]');
     if (urls.length > 0) {
       m3u += `#EXTINF:-1 tvg-name="${cc.name}" tvg-logo="${cc.logo_url || ''}" group-title="${cc.category || '24/7 Channels'}",${cc.name}\n`;
-      m3u += `${baseUrl}/live/custom/${cc.id}?username=${username}&password=${password}\n`;
+      m3u += `${baseUrl}/live/custom/${cc.id}.ts?username=${username}&password=${password}\n`;
     }
   });
 
@@ -1249,11 +1249,9 @@ app.get('/live/custom/:channelId', (req, res) => {
     }
   }
 
-  // If URL is m3u8, redirect. Otherwise proxy.
-  if (currentUrl.includes('.m3u8')) {
-    return res.redirect(currentUrl);
-  }
-  proxyUrl(currentUrl, req, res, 'video/mp4');
+  // Proxy the video - detect content type from URL
+  const contentType = currentUrl.includes('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp4';
+  proxyUrl(currentUrl, req, res, contentType);
 });
 
 // ===== CUSTOM 24/7 CHANNELS API =====

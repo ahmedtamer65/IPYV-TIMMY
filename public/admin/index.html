@@ -812,13 +812,17 @@ function renderChannels() {
   document.getElementById('channelsTable').innerHTML = filtered.map(c=>`
     <tr>
       <td>${c.id}</td>
-      <td><strong>${c.name}</strong></td>
+      <td><strong>${c.name}</strong>${c._isCustom?' <span style="color:#00d4ff;font-size:10px">24/7</span>':''}</td>
       <td><span class="badge" style="background:#1e284420;color:#8899bb">${c.category}</span></td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${c.stream_url||'<span style="color:#ff4757">No URL</span>'}${c.backup_url?' <span style="color:#00ff88;font-size:10px">+BK</span>':''}</td>
       <td><span class="badge ${c.is_active?'badge-active':'badge-inactive'}">${c.is_active?'Active':'Off'}</span></td>
       <td>
-        <button class="btn btn-primary btn-sm" data-action="editChannel" data-id="${c.id}">Edit</button>
-        <button class="btn btn-danger btn-sm" data-action="deleteChannel" data-id="${c.id}">Delete</button>
+        ${c._isCustom ?
+          `<button class="btn btn-primary btn-sm" onclick="editCustomChannel(${String(c.id).replace('custom_','')})">Edit</button>
+           <button class="btn btn-danger btn-sm" onclick="deleteCustomChannel(${String(c.id).replace('custom_','')},'${c.name.replace(/'/g,"\\'")}')">Delete</button>` :
+          `<button class="btn btn-primary btn-sm" data-action="editChannel" data-id="${c.id}">Edit</button>
+           <button class="btn btn-danger btn-sm" data-action="deleteChannel" data-id="${c.id}">Delete</button>`
+        }
       </td>
     </tr>
   `).join('');
