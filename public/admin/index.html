@@ -824,7 +824,14 @@ function openChannelModal(id=null) {
     <label>Backup URL 2</label><input id="m_chbackup2" value="${c?.backup_url2||''}" placeholder="Second backup (optional)">
     <label>Logo URL</label><input id="m_chlogo" value="${c?.logo_url||''}" placeholder="Optional">
     <label>Sort Order</label><input id="m_chorder" type="number" value="${c?.sort_order||0}">
-    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_chwatermark" ${c?.watermark!==0?'checked':''}> Show Watermark on this channel</label>
+    <label>Watermark / Logo URL</label><input id="m_chwmurl" value="${c?.watermark_url||''}" placeholder="https://... or leave empty for global setting">
+    ${c?.watermark_url ? '<img src="'+c.watermark_url+'" style="max-height:40px;margin:4px 0;border-radius:4px;background:#0a0e1a;padding:2px" onerror="this.style.display=\'none\'">' : ''}
+    <div class="form-row">
+      <div><label>Position</label><select id="m_chwmpos"><option value="top-left" ${c?.watermark_position==='top-left'?'selected':''}>Top Left</option><option value="top-right" ${c?.watermark_position==='top-right'||!c?.watermark_position?'selected':''}>Top Right</option><option value="bottom-left" ${c?.watermark_position==='bottom-left'?'selected':''}>Bottom Left</option><option value="bottom-right" ${c?.watermark_position==='bottom-right'?'selected':''}>Bottom Right</option><option value="center" ${c?.watermark_position==='center'?'selected':''}>Center</option></select></div>
+      <div><label>Opacity</label><input id="m_chwmopacity" type="range" min="0.1" max="1.0" step="0.05" value="${c?.watermark_opacity||0.8}" style="width:120px;accent-color:#00ff88" oninput="this.nextElementSibling.textContent=this.value"><span style="color:#5a6a8a;font-size:12px;margin-left:6px">${c?.watermark_opacity||0.8}</span></div>
+      <div><label>Size (px)</label><input id="m_chwmsize" type="number" value="${c?.watermark_size||120}" min="20" max="500" style="width:80px"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_chwatermark" ${c?.watermark!==0?'checked':''}> Show Watermark</label>
     <div class="modal-actions">
       <button class="btn btn-primary" data-action="saveChannel" data-id="${c?.id||'null'}">${c?'Update':'Create'}</button>
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
@@ -842,7 +849,11 @@ async function saveChannel(id) {
     backup_url2: document.getElementById('m_chbackup2').value,
     logo_url: document.getElementById('m_chlogo').value,
     sort_order: parseInt(document.getElementById('m_chorder').value)||0,
-    watermark: document.getElementById('m_chwatermark').checked ? 1 : 0
+    watermark: document.getElementById('m_chwatermark').checked ? 1 : 0,
+    watermark_url: document.getElementById('m_chwmurl').value,
+    watermark_position: document.getElementById('m_chwmpos').value,
+    watermark_opacity: parseFloat(document.getElementById('m_chwmopacity').value),
+    watermark_size: parseInt(document.getElementById('m_chwmsize').value)||120
   };
   await api(id?`/api/admin/channels/${id}`:'/api/admin/channels',id?'PUT':'POST',body);
   closeModal(); await loadChannels();
@@ -912,7 +923,14 @@ function openMovieModal(id=null) {
       <div style="flex:2"><label>Backdrop URL</label><input id="m_mbackdrop" value="${m?.backdrop_url||''}" placeholder="Optional - wide image"></div>
     </div>
     ${m?.poster_url ? `<div style="margin:8px 0;text-align:center"><img src="${m.poster_url}" style="max-height:120px;border-radius:8px" onerror="this.style.display='none'"></div>` : ''}
-    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_mwatermark" ${m?.watermark!==0?'checked':''}> Show Watermark on this movie</label>
+    <label>Watermark / Logo URL</label><input id="m_mwmurl" value="${m?.watermark_url||''}" placeholder="https://... or leave empty for global setting">
+    ${m?.watermark_url ? '<img src="'+m.watermark_url+'" style="max-height:40px;margin:4px 0;border-radius:4px;background:#0a0e1a;padding:2px" onerror="this.style.display=\'none\'">' : ''}
+    <div class="form-row">
+      <div><label>Position</label><select id="m_mwmpos"><option value="top-left" ${m?.watermark_position==='top-left'?'selected':''}>Top Left</option><option value="top-right" ${m?.watermark_position==='top-right'||!m?.watermark_position?'selected':''}>Top Right</option><option value="bottom-left" ${m?.watermark_position==='bottom-left'?'selected':''}>Bottom Left</option><option value="bottom-right" ${m?.watermark_position==='bottom-right'?'selected':''}>Bottom Right</option><option value="center" ${m?.watermark_position==='center'?'selected':''}>Center</option></select></div>
+      <div><label>Opacity</label><input id="m_mwmopacity" type="range" min="0.1" max="1.0" step="0.05" value="${m?.watermark_opacity||0.8}" style="width:120px;accent-color:#00ff88" oninput="this.nextElementSibling.textContent=this.value"><span style="color:#5a6a8a;font-size:12px;margin-left:6px">${m?.watermark_opacity||0.8}</span></div>
+      <div><label>Size (px)</label><input id="m_mwmsize" type="number" value="${m?.watermark_size||120}" min="20" max="500" style="width:80px"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_mwatermark" ${m?.watermark!==0?'checked':''}> Show Watermark</label>
     <div class="modal-actions">
       <button class="btn btn-primary" data-action="saveMovie" data-id="${m?.id||'null'}">${m?'Update':'Create'}</button>
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
@@ -935,7 +953,11 @@ async function saveMovie(id) {
     director: document.getElementById('m_mdir').value,
     genre: document.getElementById('m_mgenre').value,
     backdrop_url: document.getElementById('m_mbackdrop').value,
-    watermark: document.getElementById('m_mwatermark').checked ? 1 : 0
+    watermark: document.getElementById('m_mwatermark').checked ? 1 : 0,
+    watermark_url: document.getElementById('m_mwmurl').value,
+    watermark_position: document.getElementById('m_mwmpos').value,
+    watermark_opacity: parseFloat(document.getElementById('m_mwmopacity').value),
+    watermark_size: parseInt(document.getElementById('m_mwmsize').value)||120
   };
   await api(id?`/api/admin/movies/${id}`:'/api/admin/movies',id?'PUT':'POST',body);
   closeModal(); await loadMovies();
@@ -989,7 +1011,14 @@ function openSeriesModal(id=null) {
       <div><label>Rating</label><input id="m_srating" type="number" step="0.1" max="10" value="${s?.rating||''}"></div>
     </div>
     <label>Poster URL</label><input id="m_sposter" value="${s?.poster_url||''}" placeholder="Optional">
-    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_swatermark" ${s?.watermark!==0?'checked':''}> Show Watermark on this series</label>
+    <label>Watermark / Logo URL</label><input id="m_swmurl" value="${s?.watermark_url||''}" placeholder="https://... or leave empty for global setting">
+    ${s?.watermark_url ? '<img src="'+s.watermark_url+'" style="max-height:40px;margin:4px 0;border-radius:4px;background:#0a0e1a;padding:2px" onerror="this.style.display=\'none\'">' : ''}
+    <div class="form-row">
+      <div><label>Position</label><select id="m_swmpos"><option value="top-left" ${s?.watermark_position==='top-left'?'selected':''}>Top Left</option><option value="top-right" ${s?.watermark_position==='top-right'||!s?.watermark_position?'selected':''}>Top Right</option><option value="bottom-left" ${s?.watermark_position==='bottom-left'?'selected':''}>Bottom Left</option><option value="bottom-right" ${s?.watermark_position==='bottom-right'?'selected':''}>Bottom Right</option><option value="center" ${s?.watermark_position==='center'?'selected':''}>Center</option></select></div>
+      <div><label>Opacity</label><input id="m_swmopacity" type="range" min="0.1" max="1.0" step="0.05" value="${s?.watermark_opacity||0.8}" style="width:120px;accent-color:#00ff88" oninput="this.nextElementSibling.textContent=this.value"><span style="color:#5a6a8a;font-size:12px;margin-left:6px">${s?.watermark_opacity||0.8}</span></div>
+      <div><label>Size (px)</label><input id="m_swmsize" type="number" value="${s?.watermark_size||120}" min="20" max="500" style="width:80px"></div>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_swatermark" ${s?.watermark!==0?'checked':''}> Show Watermark</label>
     <div class="modal-actions">
       <button class="btn btn-primary" data-action="saveSeries" data-id="${s?.id||'null'}">${s?'Update':'Create'}</button>
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
@@ -1007,7 +1036,11 @@ async function saveSeries(id) {
     year: parseInt(document.getElementById('m_syear').value)||null,
     rating: parseFloat(document.getElementById('m_srating').value)||null,
     poster_url: document.getElementById('m_sposter').value,
-    watermark: document.getElementById('m_swatermark').checked ? 1 : 0
+    watermark: document.getElementById('m_swatermark').checked ? 1 : 0,
+    watermark_url: document.getElementById('m_swmurl').value,
+    watermark_position: document.getElementById('m_swmpos').value,
+    watermark_opacity: parseFloat(document.getElementById('m_swmopacity').value),
+    watermark_size: parseInt(document.getElementById('m_swmsize').value)||120
   };
   await api(id?`/api/admin/series/${id}`:'/api/admin/series',id?'PUT':'POST',body);
   closeModal(); await loadSeries();

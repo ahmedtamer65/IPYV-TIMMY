@@ -209,6 +209,10 @@ async function init() {
     created_at TEXT DEFAULT (datetime('now'))
   )`);
   try { db.run('ALTER TABLE channels ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
+  try { db.run('ALTER TABLE channels ADD COLUMN watermark_url TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE channels ADD COLUMN watermark_position TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE channels ADD COLUMN watermark_opacity REAL'); } catch(e) {}
+  try { db.run('ALTER TABLE channels ADD COLUMN watermark_size INTEGER'); } catch(e) {}
 
   // Movies
   db.run(`CREATE TABLE IF NOT EXISTS movies (
@@ -238,6 +242,10 @@ async function init() {
   try { db.run('ALTER TABLE movies ADD COLUMN backdrop_url TEXT'); } catch(e) {}
   try { db.run('ALTER TABLE movies ADD COLUMN tmdb_id INTEGER'); } catch(e) {}
   try { db.run('ALTER TABLE movies ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN watermark_url TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN watermark_position TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN watermark_opacity REAL'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN watermark_size INTEGER'); } catch(e) {}
 
   // Series
   db.run(`CREATE TABLE IF NOT EXISTS series (
@@ -263,6 +271,10 @@ async function init() {
   try { db.run('ALTER TABLE series ADD COLUMN backdrop_url TEXT'); } catch(e) {}
   try { db.run('ALTER TABLE series ADD COLUMN tmdb_id INTEGER'); } catch(e) {}
   try { db.run('ALTER TABLE series ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN watermark_url TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN watermark_position TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN watermark_opacity REAL'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN watermark_size INTEGER'); } catch(e) {}
 
   // Episodes
   db.run(`CREATE TABLE IF NOT EXISTS episodes (
