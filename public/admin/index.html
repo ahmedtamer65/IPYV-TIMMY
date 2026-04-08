@@ -781,6 +781,22 @@ async function saveUser(id) {
 let channelFilter = null;
 async function loadChannels() {
   allChannels = await api('/api/admin/channels');
+  // Add custom 24/7 channels to the list
+  try {
+    const custom = await api('/api/admin/custom-channels');
+    custom.forEach(cc => {
+      if (cc.is_active) {
+        allChannels.push({
+          id: 'custom_' + cc.id,
+          name: '🔁 ' + cc.name,
+          category: cc.category || '24/7 Channels',
+          stream_url: '/live/custom/' + cc.id,
+          is_active: 1,
+          _isCustom: true
+        });
+      }
+    });
+  } catch(e) {}
   document.getElementById('chCount').textContent = allChannels.length;
   const cats = [...new Set(allChannels.map(c=>c.category))];
   document.getElementById('channelFilters').innerHTML =

@@ -1176,6 +1176,7 @@ app.get('/live/movies.m3u8', (req, res) => {
 });
 
 // Custom 24/7 channel — plays specific video URLs in order
+// Returns M3U8 playlist so videos play one after another
 app.get('/live/custom/:channelId', (req, res) => {
   const { channelId } = req.params;
   const cleanId = channelId.replace(/\.(m3u8|mp4|ts)$/, '');
@@ -1193,14 +1194,35 @@ app.get('/live/custom/:channelId', (req, res) => {
   const urls = JSON.parse(channel.video_urls || '[]').filter(u => u && u.trim());
   if (urls.length === 0) return res.status(404).send('No videos in this channel');
 
-  // Cycle through videos based on time (2 hours per video)
-  const now = Math.floor(Date.now() / 1000);
-  const avgDuration = 7200;
-  const currentIndex = Math.floor(now / avgDuration) % urls.length;
-  const currentUrl = urls[currentIndex];
+  const baseUrl = req.protocol + '://' + req.get('host');
 
-  // Proxy instead of redirect for player compatibility
-  proxyUrl(currentUrl, req, res, 'video/mp4');
+  // Generate M3U playlist with all videos in order (loops)
+  let m3u = '#EXTM3U\n';
+  // Repeat playlist 50 times for continuous loop effect
+  for (let loop = 0; loop < 50; loop++) {
+    urls.forEach((url, i) => {
+      m3u += `#EXTINF:-1,${channel.name} - Video ${i + 1}\n`;
+      m3u += `${baseUrl}/live/custom/${cleanId}/video/${i}?username=${username || ''}&password=${pass || ''}\n`;
+    });
+  }
+
+  res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(m3u);
+});
+
+// Serve individual video from custom 24/7 channel
+app.get('/live/custom/:channelId/video/:index', (req, res) => {
+  const cleanId = req.params.channelId.replace(/\.(m3u8|mp4|ts)$/, '');
+  const index = parseInt(req.params.index) || 0;
+
+  const channel = getOne('SELECT * FROM custom_channels WHERE id = ? AND is_active = 1', [cleanId]);
+  if (!channel) return res.status(404).send('Channel not found');
+
+  const urls = JSON.parse(channel.video_urls || '[]').filter(u => u && u.trim());
+  if (urls.length === 0 || index >= urls.length) return res.status(404).send('Video not found');
+
+  proxyUrl(urls[index], req, res, 'video/mp4');
 });
 
 // ===== CUSTOM 24/7 CHANNELS API =====
