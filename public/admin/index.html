@@ -2115,7 +2115,12 @@ function openCustomChannelModal(channel) {
     <div style="margin-bottom:12px">
       <label style="color:#00d4ff;font-size:12px;font-weight:bold;display:block;margin-bottom:4px">Video URLs (one per line) — plays in order, loops forever</label>
       <textarea id="cc_urls" rows="8" style="width:100%;box-sizing:border-box;background:#0a0e1a;border:1px solid #1e2844;border-radius:8px;color:#e0e0e0;font-size:13px;padding:10px;font-family:monospace;resize:vertical" placeholder="https://example.com/movie1.mp4&#10;https://example.com/movie2.mp4&#10;https://example.com/movie3.mp4">${urls.join('\n')}</textarea>
-      <div style="font-size:11px;color:#5a6a8a;margin-top:4px">Supports: mp4, mkv, m3u8 links. Each video plays ~2 hours then switches to next.</div>
+      <div style="font-size:11px;color:#5a6a8a;margin-top:4px">Supports: mp4, mkv, m3u8 links.</div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="color:#00d4ff;font-size:12px;font-weight:bold;display:block;margin-bottom:4px">Duration per video (minutes) — one per line, same order as URLs</label>
+      <textarea id="cc_durations" rows="4" style="width:100%;box-sizing:border-box;background:#0a0e1a;border:1px solid #1e2844;border-radius:8px;color:#e0e0e0;font-size:13px;padding:10px;font-family:monospace;resize:vertical" placeholder="90&#10;120&#10;95">${(channel && channel.durations ? channel.durations : []).map(d=>Math.round(d/60)).join('\n')}</textarea>
+      <div style="font-size:11px;color:#5a6a8a;margin-top:4px">Enter duration in minutes for each video. If empty, defaults to 120 min (2 hours). When video finishes, next one starts automatically.</div>
     </div>
     <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="cc_watermark" ${channel?.watermark!==0?'checked':''}> Show Watermark on this channel</label>
     <div style="display:flex;gap:10px">
@@ -2137,8 +2142,12 @@ async function saveCustomChannel() {
 
   if (video_urls.length === 0) return alert('Add at least one video URL');
   const watermark = document.getElementById('cc_watermark').checked ? 1 : 0;
+  const durations = document.getElementById('cc_durations').value.split('\n').map(d => {
+    const mins = parseInt(d.trim());
+    return (mins && mins > 0) ? mins * 60 : 7200; // convert mins to seconds, default 2hr
+  });
 
-  const body = { name, category, description, logo_url, video_urls, watermark };
+  const body = { name, category, description, logo_url, video_urls, durations, watermark };
   if (id) {
     await api('/api/admin/custom-channels/' + id, 'PUT', body);
   } else {

@@ -1193,13 +1193,30 @@ app.get('/live/custom/:channelId', (req, res) => {
   const urls = JSON.parse(channel.video_urls || '[]').filter(u => u && u.trim());
   if (urls.length === 0) return res.status(404).send('No videos in this channel');
 
-  // If index specified, play that video. Otherwise rotate by time (3hr fallback for external players)
+  // Smart rotation: use durations if available, otherwise 2hr per video
+  let durations;
+  try { durations = JSON.parse(channel.durations || '[]'); } catch(e) { durations = []; }
+
   let currentIndex;
   if (req.query.index !== undefined) {
     currentIndex = parseInt(req.query.index) % urls.length;
   } else {
+    // Calculate total cycle duration
+    const getDuration = (i) => (durations[i] || 7200); // default 2hr in seconds
+    const totalCycle = urls.reduce((sum, _, i) => sum + getDuration(i), 0);
     const now = Math.floor(Date.now() / 1000);
-    currentIndex = Math.floor(now / 10800) % urls.length;
+    const posInCycle = now % totalCycle;
+
+    // Find which video should be playing now
+    let elapsed = 0;
+    currentIndex = 0;
+    for (let i = 0; i < urls.length; i++) {
+      elapsed += getDuration(i);
+      if (posInCycle < elapsed) {
+        currentIndex = i;
+        break;
+      }
+    }
   }
   const currentUrl = urls[currentIndex];
 
@@ -1243,25 +1260,27 @@ app.get('/live/custom/:channelId', (req, res) => {
 app.get('/api/admin/custom-channels', (req, res) => {
   if (!requireAdmin(req, res)) return;
   const channels = getAll('SELECT * FROM custom_channels ORDER BY id');
-  res.json(channels.map(c => ({ ...c, video_urls: JSON.parse(c.video_urls || '[]') })));
+  res.json(channels.map(c => ({ ...c, video_urls: JSON.parse(c.video_urls || '[]'), durations: JSON.parse(c.durations || '[]') })));
 });
 
 app.post('/api/admin/custom-channels', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { name, category, description, logo_url, video_urls } = req.body;
+  const { name, category, description, logo_url, video_urls, durations } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const urls = Array.isArray(video_urls) ? video_urls : [];
-  run('INSERT INTO custom_channels (name, category, description, logo_url, video_urls) VALUES (?, ?, ?, ?, ?)',
-    [name, category || '24/7 Channels', description || '', logo_url || '', JSON.stringify(urls)]);
+  const durs = Array.isArray(durations) ? durations : [];
+  run('INSERT INTO custom_channels (name, category, description, logo_url, video_urls, durations) VALUES (?, ?, ?, ?, ?, ?)',
+    [name, category || '24/7 Channels', description || '', logo_url || '', JSON.stringify(urls), JSON.stringify(durs)]);
   res.json({ message: 'Custom channel created' });
 });
 
 app.put('/api/admin/custom-channels/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { name, category, description, logo_url, video_urls, is_active } = req.body;
-  run('UPDATE custom_channels SET name=?, category=?, description=?, logo_url=?, video_urls=?, is_active=? WHERE id=?', [
+  const { name, category, description, logo_url, video_urls, durations, is_active } = req.body;
+  run('UPDATE custom_channels SET name=?, category=?, description=?, logo_url=?, video_urls=?, durations=?, is_active=? WHERE id=?', [
     name, category || '24/7 Channels', description || '', logo_url || '',
     JSON.stringify(Array.isArray(video_urls) ? video_urls : []),
+    JSON.stringify(Array.isArray(durations) ? durations : []),
     is_active !== undefined ? is_active : 1,
     req.params.id
   ]);
