@@ -1178,7 +1178,7 @@ app.get('/live/movies.m3u8', (req, res) => {
 // Custom 24/7 channel — plays video URLs in rotation
 app.get('/live/custom/:channelId', (req, res) => {
   const { channelId } = req.params;
-  const cleanId = channelId.replace(/\.(m3u8|mp4|ts)$/, '');
+  const cleanId = channelId.replace(/\.(m3u8|m3u|mp4|ts)$/, '');
 
   // Auth via query params
   const { username, password: pass } = req.query;
