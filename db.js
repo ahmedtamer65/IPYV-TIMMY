@@ -390,6 +390,7 @@ async function init() {
     created_at TEXT DEFAULT (datetime('now'))
   )`);
   try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
+  try { db.run("ALTER TABLE custom_channels ADD COLUMN category TEXT DEFAULT '24/7 Channels'"); } catch(e) {}
 
   // === SEED DATA ===
 

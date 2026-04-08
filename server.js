@@ -843,11 +843,16 @@ app.get('/player_api.php', (req, res) => {
       category_name: c.category,
       parent_id: 0
     }));
-    // Add 24/7 category if custom channels exist
-    const has24 = getOne('SELECT COUNT(*) as cnt FROM custom_channels WHERE is_active = 1');
-    if (has24 && has24.cnt > 0) {
-      result.push({ category_id: '9999', category_name: '24/7 Channels', parent_id: 0 });
-    }
+    // Add custom 24/7 channel categories
+    const customCats = getAll('SELECT DISTINCT category FROM custom_channels WHERE is_active = 1');
+    const existingNames = result.map(r => r.category_name);
+    customCats.forEach((cc, i) => {
+      const catName = cc.category || '24/7 Channels';
+      if (!existingNames.includes(catName)) {
+        result.push({ category_id: String(9000 + i), category_name: catName, parent_id: 0 });
+        existingNames.push(catName);
+      }
+    });
     return res.json(result);
   }
 
@@ -895,8 +900,8 @@ app.get('/player_api.php', (req, res) => {
           epg_channel_id: null,
           added: '0',
           is_adult: '0',
-          category_id: '9999',
-          category_ids: [9999],
+          category_id: cc.category || '24/7 Channels',
+          category_ids: [cc.category || '24/7 Channels'],
           custom_sid: 'custom_' + cc.id,
           tv_archive: 0,
           direct_source: '',
@@ -1140,7 +1145,7 @@ app.get('/get.php', (req, res) => {
   customChs.forEach(cc => {
     const urls = JSON.parse(cc.video_urls || '[]');
     if (urls.length > 0) {
-      m3u += `#EXTINF:-1 tvg-name="${cc.name}" tvg-logo="${cc.logo_url || ''}" group-title="24/7 Channels",${cc.name}\n`;
+      m3u += `#EXTINF:-1 tvg-name="${cc.name}" tvg-logo="${cc.logo_url || ''}" group-title="${cc.category || '24/7 Channels'}",${cc.name}\n`;
       m3u += `${baseUrl}/live/custom/${cc.id}?username=${username}&password=${password}\n`;
     }
   });
@@ -1207,19 +1212,19 @@ app.get('/api/admin/custom-channels', (req, res) => {
 
 app.post('/api/admin/custom-channels', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { name, description, logo_url, video_urls } = req.body;
+  const { name, category, description, logo_url, video_urls } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const urls = Array.isArray(video_urls) ? video_urls : [];
-  run('INSERT INTO custom_channels (name, description, logo_url, video_urls) VALUES (?, ?, ?, ?)',
-    [name, description || '', logo_url || '', JSON.stringify(urls)]);
+  run('INSERT INTO custom_channels (name, category, description, logo_url, video_urls) VALUES (?, ?, ?, ?, ?)',
+    [name, category || '24/7 Channels', description || '', logo_url || '', JSON.stringify(urls)]);
   res.json({ message: 'Custom channel created' });
 });
 
 app.put('/api/admin/custom-channels/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { name, description, logo_url, video_urls, is_active } = req.body;
-  run('UPDATE custom_channels SET name=?, description=?, logo_url=?, video_urls=?, is_active=? WHERE id=?', [
-    name, description || '', logo_url || '',
+  const { name, category, description, logo_url, video_urls, is_active } = req.body;
+  run('UPDATE custom_channels SET name=?, category=?, description=?, logo_url=?, video_urls=?, is_active=? WHERE id=?', [
+    name, category || '24/7 Channels', description || '', logo_url || '',
     JSON.stringify(Array.isArray(video_urls) ? video_urls : []),
     is_active !== undefined ? is_active : 1,
     req.params.id

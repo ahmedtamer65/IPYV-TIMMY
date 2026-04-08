@@ -2069,6 +2069,10 @@ function openCustomChannelModal(channel) {
       <input id="cc_name" class="search-box" placeholder="e.g. Action Movies 24/7" style="width:100%;box-sizing:border-box" value="${channel ? channel.name : ''}">
     </div>
     <div style="margin-bottom:12px">
+      <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Category (appears in this group in Live Channels)</label>
+      <input id="cc_category" class="search-box" placeholder="e.g. Arabic, Entertainment, Movies 24/7" style="width:100%;box-sizing:border-box" value="${channel ? (channel.category||'24/7 Channels') : '24/7 Channels'}">
+    </div>
+    <div style="margin-bottom:12px">
       <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Description</label>
       <input id="cc_desc" class="search-box" placeholder="Optional description" style="width:100%;box-sizing:border-box" value="${channel ? (channel.description||'') : ''}">
     </div>
@@ -2094,6 +2098,7 @@ async function saveCustomChannel() {
   const id = document.getElementById('cc_id').value;
   const name = document.getElementById('cc_name').value.trim();
   if (!name) return alert('Channel name required');
+  const category = document.getElementById('cc_category').value.trim() || '24/7 Channels';
   const description = document.getElementById('cc_desc').value.trim();
   const logo_url = document.getElementById('cc_logo').value.trim();
   const video_urls = document.getElementById('cc_urls').value.split('\n').map(u => u.trim()).filter(u => u);
@@ -2101,7 +2106,7 @@ async function saveCustomChannel() {
   if (video_urls.length === 0) return alert('Add at least one video URL');
   const watermark = document.getElementById('cc_watermark').checked ? 1 : 0;
 
-  const body = { name, description, logo_url, video_urls, watermark };
+  const body = { name, category, description, logo_url, video_urls, watermark };
   if (id) {
     await api('/api/admin/custom-channels/' + id, 'PUT', body);
   } else {
