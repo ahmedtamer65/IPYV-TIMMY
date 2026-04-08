@@ -24,7 +24,7 @@ if (fs.existsSync(envPath)) {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3500;
+const PORT = process.env.PORT || 80;
 const BASE_DIR = process.pkg ? path.dirname(process.execPath) : __dirname;
 
 // Middleware
