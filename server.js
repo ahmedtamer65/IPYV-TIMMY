@@ -964,12 +964,22 @@ app.get('/get.php', (req, res) => {
     });
   });
 
-  // 24/7 Movie Channel
+  // 24/7 Movie Channel (all movies)
   const movieChannel = getAll('SELECT * FROM movies WHERE is_active = 1 AND video_url IS NOT NULL AND video_url != "" ORDER BY RANDOM()');
   if (movieChannel.length > 0) {
-    m3u += `#EXTINF:-1 tvg-name="24/7 Movies" tvg-logo="" group-title="Special Channels",🎬 24/7 Movies Channel\n`;
+    m3u += `#EXTINF:-1 tvg-name="24/7 Movies" tvg-logo="" group-title="24/7 Channels",🎬 24/7 Movies Channel\n`;
     m3u += `${baseUrl}/live/movies.m3u8?token=${username}:${password}\n`;
   }
+
+  // Custom 24/7 channels
+  const customChs = getAll('SELECT * FROM custom_channels WHERE is_active = 1');
+  customChs.forEach(cc => {
+    const urls = JSON.parse(cc.video_urls || '[]');
+    if (urls.length > 0) {
+      m3u += `#EXTINF:-1 tvg-name="${cc.name}" tvg-logo="${cc.logo_url || ''}" group-title="24/7 Channels",${cc.name}\n`;
+      m3u += `${baseUrl}/live/custom/${cc.id}?username=${username}&password=${password}\n`;
+    }
+  });
 
   res.setHeader('Content-Type', 'audio/mpegurl');
   res.setHeader('Content-Disposition', `attachment; filename="${username}_playlist.m3u"`);
@@ -977,7 +987,7 @@ app.get('/get.php', (req, res) => {
 });
 
 // ===== 24/7 MOVIE CHANNEL =====
-// Serves a dynamic HLS-like playlist that cycles through movies
+// Default 24/7 channel — plays all movies in rotation
 app.get('/live/movies.m3u8', (req, res) => {
   const token = req.query.token;
   if (!token) return res.status(401).send('Token required');
@@ -988,16 +998,75 @@ app.get('/live/movies.m3u8', (req, res) => {
   const movies = getAll('SELECT * FROM movies WHERE is_active = 1 AND video_url IS NOT NULL AND video_url != ""');
   if (movies.length === 0) return res.status(404).send('No movies');
 
-  // Cycle through movies based on current time
   const now = Math.floor(Date.now() / 1000);
-  const avgDuration = 7200; // 2 hours per movie
+  const avgDuration = 7200;
   const currentIndex = Math.floor(now / avgDuration) % movies.length;
   const currentMovie = movies[currentIndex];
-  const nextMovie = movies[(currentIndex + 1) % movies.length];
 
-  // Return a simple redirect to current movie
-  // The player will auto-play this
   res.redirect(currentMovie.video_url);
+});
+
+// Custom 24/7 channel — plays specific video URLs in order
+app.get('/live/custom/:channelId', (req, res) => {
+  const { channelId } = req.params;
+  const cleanId = channelId.replace(/\.(m3u8|mp4|ts)$/, '');
+
+  // Auth via query params
+  const { username, password: pass } = req.query;
+  if (username && pass) {
+    const user = getOne('SELECT * FROM users WHERE username = ?', [username]);
+    if (!user || !bcrypt.compareSync(pass, user.password)) return res.status(401).send('Invalid');
+  }
+
+  const channel = getOne('SELECT * FROM custom_channels WHERE id = ? AND is_active = 1', [cleanId]);
+  if (!channel) return res.status(404).send('Channel not found');
+
+  const urls = JSON.parse(channel.video_urls || '[]').filter(u => u && u.trim());
+  if (urls.length === 0) return res.status(404).send('No videos in this channel');
+
+  // Cycle through videos based on time (2 hours per video)
+  const now = Math.floor(Date.now() / 1000);
+  const avgDuration = 7200;
+  const currentIndex = Math.floor(now / avgDuration) % urls.length;
+  const currentUrl = urls[currentIndex];
+
+  // Proxy instead of redirect for player compatibility
+  proxyUrl(currentUrl, req, res, 'video/mp4');
+});
+
+// ===== CUSTOM 24/7 CHANNELS API =====
+app.get('/api/admin/custom-channels', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const channels = getAll('SELECT * FROM custom_channels ORDER BY id');
+  res.json(channels.map(c => ({ ...c, video_urls: JSON.parse(c.video_urls || '[]') })));
+});
+
+app.post('/api/admin/custom-channels', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { name, description, logo_url, video_urls } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const urls = Array.isArray(video_urls) ? video_urls : [];
+  run('INSERT INTO custom_channels (name, description, logo_url, video_urls) VALUES (?, ?, ?, ?)',
+    [name, description || '', logo_url || '', JSON.stringify(urls)]);
+  res.json({ message: 'Custom channel created' });
+});
+
+app.put('/api/admin/custom-channels/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { name, description, logo_url, video_urls, is_active } = req.body;
+  run('UPDATE custom_channels SET name=?, description=?, logo_url=?, video_urls=?, is_active=? WHERE id=?', [
+    name, description || '', logo_url || '',
+    JSON.stringify(Array.isArray(video_urls) ? video_urls : []),
+    is_active !== undefined ? is_active : 1,
+    req.params.id
+  ]);
+  res.json({ message: 'Custom channel updated' });
+});
+
+app.delete('/api/admin/custom-channels/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  run('DELETE FROM custom_channels WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Custom channel deleted' });
 });
 
 // ===== MOVIE CHANNEL API (for player) =====
@@ -1226,6 +1295,171 @@ app.get('/api/admin/users/export/csv', (req, res) => {
 // Root redirect
 app.get('/', (req, res) => res.redirect('/admin'));
 
+// ===== SITE SETTINGS API =====
+function requireAdmin(req, res) {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) { res.status(401).json({ error: 'Auth required' }); return null; }
+  const jwt = require('jsonwebtoken');
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'iptv-learning-secret-key-2024');
+    if (decoded.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return null; }
+    return decoded;
+  } catch { res.status(401).json({ error: 'Invalid token' }); return null; }
+}
+
+// GET /api/admin/settings — returns all settings
+app.get('/api/admin/settings', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const rows = getAll('SELECT key, value FROM site_settings', []);
+  const settings = {};
+  rows.forEach(r => { settings[r.key] = r.value; });
+  res.json(settings);
+});
+
+// PUT /api/admin/settings — updates a setting
+app.put('/api/admin/settings', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { key, value } = req.body;
+  if (!key) return res.status(400).json({ error: 'key required' });
+  run('INSERT OR REPLACE INTO site_settings (key, value) VALUES (?, ?)', [key, String(value ?? '')]);
+  res.json({ message: 'Setting updated', key, value });
+});
+
+// Admin: Kick user (disconnect all their streams)
+app.post('/api/admin/connections/kick', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'userId required' });
+  const conns = activeConnections.get(Number(userId));
+  if (conns) {
+    activeConnections.delete(Number(userId));
+    auditLog(admin.id, admin.username || 'admin', 'kick_user', `Kicked user ID ${userId}`, req, 'medium');
+    res.json({ message: 'User kicked', disconnected: conns.size });
+  } else {
+    res.json({ message: 'User has no active connections', disconnected: 0 });
+  }
+});
+
+// GET /api/settings/public — public branding settings (no auth)
+app.get('/api/settings/public', (req, res) => {
+  const publicKeys = ['site_name', 'logo_url', 'watermark_url', 'watermark_position', 'watermark_opacity'];
+  const rows = getAll('SELECT key, value FROM site_settings WHERE key IN (' + publicKeys.map(() => '?').join(',') + ')', publicKeys);
+  const settings = {};
+  rows.forEach(r => { settings[r.key] = r.value; });
+  res.json(settings);
+});
+
+// ===== WATERMARK PREVIEW =====
+// GET /api/admin/watermark-preview — HTML preview page with watermark overlay
+app.get('/api/admin/watermark-preview', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const rows = getAll('SELECT key, value FROM site_settings', []);
+  const s = {};
+  rows.forEach(r => { s[r.key] = r.value; });
+
+  const position = s.watermark_position || 'top-right';
+  const opacity = parseFloat(s.watermark_opacity) || 0.5;
+  const watermarkUrl = s.watermark_url || '';
+  const siteName = s.site_name || 'IPTV Pro';
+
+  const posStyles = {
+    'top-right':    'top:10px; right:10px;',
+    'top-left':     'top:10px; left:10px;',
+    'bottom-right': 'bottom:10px; right:10px;',
+    'bottom-left':  'bottom:10px; left:10px;',
+    'center':       'top:50%; left:50%; transform:translate(-50%,-50%);'
+  };
+  const posStyle = posStyles[position] || posStyles['top-right'];
+
+  const watermarkHtml = watermarkUrl
+    ? `<img src="${watermarkUrl}" style="max-width:150px; max-height:80px;" />`
+    : `<span style="color:white; font-size:18px; font-weight:bold; text-shadow:1px 1px 3px #000;">${siteName}</span>`;
+
+  res.setHeader('Content-Type', 'text/html');
+  res.send(`<!DOCTYPE html>
+<html>
+<head><title>Watermark Preview</title>
+<style>
+  body { margin:0; background:#000; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; font-family:sans-serif; color:#fff; }
+  .container { position:relative; width:640px; height:360px; background:#111; border:1px solid #333; }
+  video { width:100%; height:100%; object-fit:cover; }
+  .watermark { position:absolute; ${posStyle} opacity:${opacity}; pointer-events:none; z-index:10; }
+  .info { margin-top:16px; font-size:13px; color:#aaa; }
+</style>
+</head>
+<body>
+  <h2>Watermark Preview — ${siteName}</h2>
+  <div class="container">
+    <video autoplay muted loop playsinline src="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" onerror="this.style.display='none'"></video>
+    <div class="watermark">${watermarkHtml}</div>
+  </div>
+  <div class="info">Position: ${position} | Opacity: ${opacity}</div>
+</body>
+</html>`);
+});
+
+// ===== M3U IMPORT FROM URL FOR RESTREAM =====
+// POST /api/admin/import-restream — fetch M3U from URL and return parsed channel list
+app.post('/api/admin/import-restream', async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'url required' });
+
+  try {
+    const content = await new Promise((resolve, reject) => {
+      const parsedUrl = new URL(url);
+      const client = parsedUrl.protocol === 'https:' ? https : http;
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'GET',
+        headers: { 'User-Agent': 'Mozilla/5.0' }
+      };
+      const reqM3u = client.request(options, (response) => {
+        if ([301, 302, 307, 308].includes(response.statusCode) && response.headers.location) {
+          response.resume();
+          const redirectUrl = response.headers.location.startsWith('http')
+            ? response.headers.location
+            : new URL(response.headers.location, url).href;
+          const client2 = redirectUrl.startsWith('https') ? https : http;
+          client2.get(redirectUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (r2) => {
+            let d = ''; r2.on('data', c => d += c); r2.on('end', () => resolve(d)); r2.on('error', reject);
+          }).on('error', reject);
+          return;
+        }
+        let data = '';
+        response.on('data', chunk => data += chunk);
+        response.on('end', () => resolve(data));
+        response.on('error', reject);
+      });
+      reqM3u.on('error', reject);
+      reqM3u.setTimeout(15000, () => { reqM3u.destroy(); reject(new Error('Request timed out')); });
+      reqM3u.end();
+    });
+
+    const lines = content.split('\n').map(l => l.trim()).filter(l => l);
+    const channels = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('#EXTINF:')) {
+        const info = lines[i];
+        const streamUrl = (lines[i + 1] && !lines[i + 1].startsWith('#')) ? lines[i + 1] : '';
+        if (!streamUrl) continue;
+        const nameMatch = info.match(/,(.+)$/);
+        const name = nameMatch ? nameMatch[1].trim() : 'Unknown';
+        const groupMatch = info.match(/group-title="([^"]*)"/);
+        const category = groupMatch ? groupMatch[1] : '';
+        channels.push({ name, url: streamUrl, category });
+        i++;
+      }
+    }
+    res.json({ total: channels.length, channels });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to fetch M3U: ' + e.message });
+  }
+});
+
 // Start
 async function start() {
   await init();
@@ -1279,6 +1513,31 @@ async function start() {
 
     // Start all enabled restreams
     restream.startAllEnabled();
+
+    // ===== DATABASE BACKUP (every 5 minutes, keep max 50) =====
+    const BACKUP_DIR = path.join(BASE_DIR, 'backups');
+    if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    setInterval(() => {
+      try {
+        const now = new Date();
+        const pad = n => String(n).padStart(2, '0');
+        const stamp = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}`;
+        const dest = path.join(BACKUP_DIR, `iptv_${stamp}.db`);
+        const src = path.join(BASE_DIR, 'iptv.db');
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, dest);
+          // Prune oldest backups — keep max 50
+          const files = fs.readdirSync(BACKUP_DIR)
+            .filter(f => f.startsWith('iptv_') && f.endsWith('.db'))
+            .map(f => ({ name: f, mtime: fs.statSync(path.join(BACKUP_DIR, f)).mtimeMs }))
+            .sort((a, b) => a.mtime - b.mtime);
+          while (files.length > 50) {
+            const oldest = files.shift();
+            try { fs.unlinkSync(path.join(BACKUP_DIR, oldest.name)); } catch(e) {}
+          }
+        }
+      } catch(e) { console.error('Backup error:', e.message); }
+    }, 5 * 60 * 1000);
 
     // Auto-import scheduler — check every 30 minutes
     setInterval(async () => {

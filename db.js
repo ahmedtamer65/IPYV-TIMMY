@@ -356,6 +356,24 @@ async function init() {
     sort_order INTEGER DEFAULT 0
   )`);
 
+  // Site Settings
+  db.run(`CREATE TABLE IF NOT EXISTS site_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE NOT NULL,
+    value TEXT DEFAULT ''
+  )`);
+
+  // Custom 24/7 Channels
+  db.run(`CREATE TABLE IF NOT EXISTS custom_channels (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    logo_url TEXT,
+    video_urls TEXT DEFAULT '[]',
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
   // === SEED DATA ===
 
   // Admin
@@ -386,6 +404,22 @@ async function init() {
       run('INSERT INTO subscriptions (name, name_ar, price, duration_days, max_devices, quality, features, discount_percent, sort_order) VALUES (?,?,?,?,?,?,?,?,?)', p);
     });
     console.log('Subscription plans created');
+  }
+
+  // Site Settings — seed defaults if empty
+  const settingsCount = getOne('SELECT COUNT(*) as count FROM site_settings', []);
+  if (settingsCount.count === 0) {
+    const defaults = [
+      ['site_name', 'IPTV Pro'],
+      ['logo_url', ''],
+      ['watermark_url', ''],
+      ['watermark_position', 'top-right'],
+      ['watermark_opacity', '0.5'],
+    ];
+    defaults.forEach(([key, value]) => {
+      run('INSERT INTO site_settings (key, value) VALUES (?, ?)', [key, value]);
+    });
+    console.log('Site settings seeded');
   }
 
   // Channels

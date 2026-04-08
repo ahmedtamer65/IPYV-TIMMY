@@ -138,8 +138,10 @@
       <a data-action="section" data-section="movies"><span class="icon">🎬</span> Movies</a>
       <a data-action="section" data-section="series"><span class="icon">📀</span> Series</a>
       <a data-action="section" data-section="subs"><span class="icon">💳</span> Subscriptions</a>
+      <a data-action="section" data-section="custom247"><span class="icon">🔁</span> 24/7 Channels</a>
       <a data-action="section" data-section="restream"><span class="icon">📡</span> Restream</a>
       <a data-action="section" data-section="security"><span class="icon">🛡️</span> Security</a>
+      <a data-action="section" data-section="online"><span class="icon">🟢</span> Online Users</a>
       <a data-action="section" data-section="servers"><span class="icon">🖥️</span> Load Balancing</a>
       <a data-action="section" data-section="autoimport"><span class="icon">🔄</span> Auto-Import</a>
       <a data-action="section" data-section="settings"><span class="icon">⚙️</span> Settings</a>
@@ -250,6 +252,13 @@
           <tbody id="subsTable"></tbody>
         </table>
       </div>
+    </div>
+
+    <!-- CUSTOM 24/7 CHANNELS -->
+    <div class="section" id="sec-custom247">
+      <div class="page-header"><h2>24/7 Channels</h2><button class="btn btn-success" data-action="addCustomChannel">+ New Channel</button></div>
+      <p style="color:#5a6a8a;margin-bottom:16px">Create custom 24/7 channels with your own video links. Videos play one after another in a loop.</p>
+      <div id="customChannelsList"></div>
     </div>
 
     <!-- RESTREAM -->
@@ -400,9 +409,90 @@
       <div id="importResult" style="display:none;margin-top:16px;padding:16px;background:#141828;border-radius:12px;border:1px solid #1e2844"></div>
     </div>
 
+    <!-- ONLINE USERS -->
+    <div class="section" id="sec-online">
+      <div class="page-header"><h2>Online Users</h2><button class="btn btn-primary" data-action="refreshOnline">Refresh</button></div>
+      <div class="stats" id="onlineStats"></div>
+      <div class="card-section">
+        <div class="card-header"><h3>Active Connections</h3></div>
+        <table>
+          <thead><tr>
+            <th>Username</th><th>Subscription</th><th>IP Address</th><th>Watching</th><th>Duration</th><th>Connections</th><th>Action</th>
+          </tr></thead>
+          <tbody id="onlineTable"></tbody>
+        </table>
+        <div id="onlineEmpty" style="text-align:center;padding:40px;color:#5a6a8a;display:none">No users currently online</div>
+      </div>
+    </div>
+
     <!-- SETTINGS -->
     <div class="section" id="sec-settings">
       <div class="page-header"><h2>Server Settings</h2></div>
+
+      <!-- Branding Settings -->
+      <div class="card-section" style="padding:24px;margin-bottom:20px">
+        <h3 style="color:#00ff88;margin-bottom:16px">Branding Settings</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:6px">Site Name</label>
+            <input id="branding_site_name" class="search-box" placeholder="My IPTV Service" style="width:100%;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:6px">Logo URL</label>
+            <input id="branding_logo_url" class="search-box" placeholder="https://example.com/logo.png" style="width:100%;box-sizing:border-box" oninput="document.getElementById('branding_logo_preview').src=this.value||''; document.getElementById('branding_logo_preview').style.display=this.value?'block':'none'">
+            <img id="branding_logo_preview" src="" alt="Logo Preview" style="display:none;margin-top:8px;max-height:60px;max-width:200px;border-radius:6px;background:#0a0e1a;padding:4px">
+          </div>
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:6px">Watermark URL</label>
+            <input id="branding_watermark_url" class="search-box" placeholder="https://example.com/watermark.png" style="width:100%;box-sizing:border-box" oninput="document.getElementById('branding_watermark_preview').src=this.value||''; document.getElementById('branding_watermark_preview').style.display=this.value?'block':'none'">
+            <img id="branding_watermark_preview" src="" alt="Watermark Preview" style="display:none;margin-top:8px;max-height:60px;max-width:200px;border-radius:6px;background:#0a0e1a;padding:4px">
+          </div>
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:6px">Watermark Position</label>
+            <select id="branding_watermark_position" class="search-box" style="width:100%;box-sizing:border-box">
+              <option value="top-left">Top Left</option>
+              <option value="top-right">Top Right</option>
+              <option value="bottom-left">Bottom Left</option>
+              <option value="bottom-right" selected>Bottom Right</option>
+              <option value="center">Center</option>
+            </select>
+          </div>
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:6px">Watermark Opacity: <span id="branding_opacity_val">0.8</span></label>
+          <input id="branding_watermark_opacity" type="range" min="0.1" max="1.0" step="0.05" value="0.8" style="width:300px;accent-color:#00ff88" oninput="document.getElementById('branding_opacity_val').textContent=parseFloat(this.value).toFixed(2)">
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-success" data-action="saveSettings">Save Settings</button>
+          <button class="btn" data-action="previewWatermark">Preview Watermark</button>
+        </div>
+      </div>
+
+      <!-- Import M3U for Restream -->
+      <div class="card-section" style="padding:24px;margin-bottom:20px">
+        <h3 style="color:#00d4ff;margin-bottom:16px">Import M3U for Restream</h3>
+        <p style="color:#5a6a8a;margin-bottom:16px">Parse an M3U playlist URL and add selected channels to restream.</p>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <input id="importRestream_url" class="search-box" placeholder="https://example.com/playlist.m3u" style="flex:1;min-width:260px">
+          <button class="btn btn-primary" data-action="parseM3UForRestream">Parse M3U</button>
+        </div>
+        <div id="importRestreamResults" style="display:none">
+          <div style="overflow-x:auto;margin-bottom:12px">
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead>
+                <tr style="border-bottom:1px solid #1e2844">
+                  <th style="padding:8px;text-align:left;color:#5a6a8a;width:36px"><input type="checkbox" id="importRestream_selectAll" onchange="document.querySelectorAll('.importRestream_chk').forEach(c=>c.checked=this.checked)"></th>
+                  <th style="padding:8px;text-align:left;color:#5a6a8a">Name</th>
+                  <th style="padding:8px;text-align:left;color:#5a6a8a">URL</th>
+                  <th style="padding:8px;text-align:left;color:#5a6a8a">Group</th>
+                </tr>
+              </thead>
+              <tbody id="importRestreamTable"></tbody>
+            </table>
+          </div>
+          <button class="btn btn-success" data-action="addSelectedToRestream">Add Selected to Restream</button>
+        </div>
+      </div>
 
       <!-- M3U Playlist Generator -->
       <div class="card-section" style="padding:24px;margin-bottom:20px">
@@ -1305,6 +1395,7 @@ function showSection(name) {
   if(name==='movies') loadMovies();
   if(name==='series') { loadSeries(); document.getElementById('episodesPanel').innerHTML=''; }
   if(name==='subs') loadSubs();
+  if(name==='custom247') loadCustomChannels();
   if(name==='restream') loadRestreams();
   if(name==='security') loadSecurity();
   if(name==='servers') loadServers();
@@ -1313,6 +1404,7 @@ function showSection(name) {
     document.getElementById('settingsUrl').textContent = window.location.origin;
     document.getElementById('settingsPort').textContent = window.location.port || '80';
     document.getElementById('settingsPlayer').textContent = window.location.origin + '/player';
+    loadSettings();
   }
 }
 
@@ -1467,6 +1559,11 @@ document.addEventListener('click', function(e) {
       break;
     }
     case 'generateM3U': generateM3U(); break;
+    // Branding & Import Restream
+    case 'saveSettings': saveSettings(); break;
+    case 'previewWatermark': window.open('/api/admin/watermark-preview', '_blank'); break;
+    case 'parseM3UForRestream': parseM3UForRestream(); break;
+    case 'addSelectedToRestream': addSelectedToRestream(); break;
     // Restream
     case 'rsRefresh': loadRestreams(); break;
     case 'rsSave': addRestream(); break;
@@ -1480,6 +1577,9 @@ document.addEventListener('click', function(e) {
     // Export & TMDB
     case 'exportUsersCSV': exportUsersCSV(); break;
     case 'fetchTMDB': fetchTMDBPosters(); break;
+    // Custom 24/7 Channels
+    case 'addCustomChannel': openCustomChannelModal(null); break;
+    case 'saveCustomChannel': saveCustomChannel(); break;
     // Bulk import & Media
     case 'doBulkImport': doBulkImport(); break;
     case 'openUploadFromLib': openUploadModal(); break;
@@ -1718,6 +1818,103 @@ async function doBulkImport() {
   }
 }
 
+// ===== CUSTOM 24/7 CHANNELS =====
+let allCustomChannels = [];
+
+async function loadCustomChannels() {
+  try {
+    const channels = await api('/api/admin/custom-channels');
+    allCustomChannels = channels;
+    const container = document.getElementById('customChannelsList');
+    if (!channels.length) {
+      container.innerHTML = '<div class="card-section" style="text-align:center;padding:40px;color:#5a6a8a">No custom channels yet. Create one to play your own videos 24/7!</div>';
+      return;
+    }
+    const baseUrl = window.location.origin;
+    container.innerHTML = channels.map(c => {
+      const urls = c.video_urls || [];
+      return `<div class="card-section" style="padding:16px;margin-bottom:12px">
+        <div style="display:flex;justify-content:space-between;align-items:start">
+          <div style="flex:1">
+            <h3 style="color:#00ff88;margin:0">${c.name} ${!c.is_active ? '<span style="color:#ff4757;font-size:12px">(Disabled)</span>' : '<span style="color:#00ff88;font-size:12px">LIVE</span>'}</h3>
+            <div style="color:#5a6a8a;font-size:12px;margin-top:4px">${c.description || ''}</div>
+            <div style="margin-top:8px;font-size:12px;color:#00d4ff">🎬 ${urls.length} video${urls.length !== 1 ? 's' : ''} in rotation</div>
+            <div style="margin-top:6px;font-size:11px;color:#5a6a8a">
+              Stream URL: <code style="background:#0a0e1a;padding:2px 6px;border-radius:4px;color:#00d4ff;cursor:pointer" onclick="navigator.clipboard.writeText('${baseUrl}/live/custom/${c.id}');this.style.color='#00ff88';setTimeout(()=>this.style.color='#00d4ff',1000)">${baseUrl}/live/custom/${c.id}</code>
+            </div>
+            ${urls.length > 0 ? '<div style="margin-top:8px;max-height:100px;overflow-y:auto;font-size:11px">' + urls.map((u,i) => '<div style="color:#6a7a9a;padding:1px 0">' + (i+1) + '. ' + (u.length > 80 ? u.substring(0,80) + '...' : u) + '</div>').join('') + '</div>' : ''}
+          </div>
+          <div style="display:flex;gap:8px;margin-left:12px">
+            <button class="btn btn-primary" style="padding:6px 14px;font-size:12px" onclick="editCustomChannel(${c.id})">Edit</button>
+            <button class="btn btn-danger" style="padding:6px 14px;font-size:12px" onclick="deleteCustomChannel(${c.id},'${c.name.replace(/'/g,"\\'")}')">Delete</button>
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error('loadCustomChannels error:', e); }
+}
+
+function openCustomChannelModal(channel) {
+  const urls = channel ? (channel.video_urls || []) : [];
+  document.getElementById('modalContent').innerHTML = `
+    <h2>${channel ? 'Edit' : 'New'} 24/7 Channel</h2>
+    <input id="cc_id" type="hidden" value="${channel ? channel.id : ''}">
+    <div style="margin-bottom:12px">
+      <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Channel Name</label>
+      <input id="cc_name" class="search-box" placeholder="e.g. Action Movies 24/7" style="width:100%;box-sizing:border-box" value="${channel ? channel.name : ''}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Description</label>
+      <input id="cc_desc" class="search-box" placeholder="Optional description" style="width:100%;box-sizing:border-box" value="${channel ? (channel.description||'') : ''}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Logo URL</label>
+      <input id="cc_logo" class="search-box" placeholder="https://..." style="width:100%;box-sizing:border-box" value="${channel ? (channel.logo_url||'') : ''}">
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="color:#00d4ff;font-size:12px;font-weight:bold;display:block;margin-bottom:4px">Video URLs (one per line) — plays in order, loops forever</label>
+      <textarea id="cc_urls" rows="8" style="width:100%;box-sizing:border-box;background:#0a0e1a;border:1px solid #1e2844;border-radius:8px;color:#e0e0e0;font-size:13px;padding:10px;font-family:monospace;resize:vertical" placeholder="https://example.com/movie1.mp4&#10;https://example.com/movie2.mp4&#10;https://example.com/movie3.mp4">${urls.join('\n')}</textarea>
+      <div style="font-size:11px;color:#5a6a8a;margin-top:4px">Supports: mp4, mkv, m3u8 links. Each video plays ~2 hours then switches to next.</div>
+    </div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-success" data-action="saveCustomChannel">Save Channel</button>
+      <button class="btn" data-action="closeModal">Cancel</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveCustomChannel() {
+  const id = document.getElementById('cc_id').value;
+  const name = document.getElementById('cc_name').value.trim();
+  if (!name) return alert('Channel name required');
+  const description = document.getElementById('cc_desc').value.trim();
+  const logo_url = document.getElementById('cc_logo').value.trim();
+  const video_urls = document.getElementById('cc_urls').value.split('\n').map(u => u.trim()).filter(u => u);
+
+  if (video_urls.length === 0) return alert('Add at least one video URL');
+
+  const body = { name, description, logo_url, video_urls };
+  if (id) {
+    await api('/api/admin/custom-channels/' + id, 'PUT', body);
+  } else {
+    await api('/api/admin/custom-channels', 'POST', body);
+  }
+  closeModal();
+  loadCustomChannels();
+}
+
+function editCustomChannel(id) {
+  const c = allCustomChannels.find(x => x.id === id);
+  if (c) openCustomChannelModal(c);
+}
+
+async function deleteCustomChannel(id, name) {
+  if (!confirm('Delete channel "' + name + '"?')) return;
+  await api('/api/admin/custom-channels/' + id, 'DELETE');
+  loadCustomChannels();
+}
+
 // ===== MEDIA UPLOAD =====
 function openUploadModal() {
   const cats = [...new Set(allMovies.map(m=>m.category))].filter(c=>c);
@@ -1899,6 +2096,97 @@ async function openMediaLibrary() {
   } catch (err) {
     document.getElementById('modalContent').innerHTML = '<h2>🎞️ Media Library</h2><p style="color:#ff4757">Error: ' + err.message + '</p>';
   }
+}
+
+// ===== BRANDING SETTINGS =====
+async function loadSettings() {
+  try {
+    const data = await api('/api/admin/settings');
+    if (data.site_name !== undefined) document.getElementById('branding_site_name').value = data.site_name || '';
+    if (data.logo_url !== undefined) {
+      const logoInput = document.getElementById('branding_logo_url');
+      logoInput.value = data.logo_url || '';
+      const logoPreview = document.getElementById('branding_logo_preview');
+      if (data.logo_url) { logoPreview.src = data.logo_url; logoPreview.style.display = 'block'; }
+    }
+    if (data.watermark_url !== undefined) {
+      const wmInput = document.getElementById('branding_watermark_url');
+      wmInput.value = data.watermark_url || '';
+      const wmPreview = document.getElementById('branding_watermark_preview');
+      if (data.watermark_url) { wmPreview.src = data.watermark_url; wmPreview.style.display = 'block'; }
+    }
+    if (data.watermark_position !== undefined) document.getElementById('branding_watermark_position').value = data.watermark_position || 'bottom-right';
+    if (data.watermark_opacity !== undefined) {
+      const opacity = parseFloat(data.watermark_opacity) || 0.8;
+      document.getElementById('branding_watermark_opacity').value = opacity;
+      document.getElementById('branding_opacity_val').textContent = opacity.toFixed(2);
+    }
+  } catch(e) { /* silently ignore if endpoint not yet available */ }
+}
+
+async function saveSettings() {
+  const body = {
+    site_name: document.getElementById('branding_site_name').value,
+    logo_url: document.getElementById('branding_logo_url').value,
+    watermark_url: document.getElementById('branding_watermark_url').value,
+    watermark_position: document.getElementById('branding_watermark_position').value,
+    watermark_opacity: parseFloat(document.getElementById('branding_watermark_opacity').value)
+  };
+  try {
+    await api('/api/admin/settings', 'PUT', body);
+    const btn = document.querySelector('[data-action="saveSettings"]');
+    const orig = btn.textContent;
+    btn.textContent = 'Saved!';
+    btn.style.background = '#0f5132';
+    setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 2000);
+  } catch(e) { alert('Failed to save settings: ' + e.message); }
+}
+
+// ===== IMPORT M3U FOR RESTREAM =====
+async function parseM3UForRestream() {
+  const url = document.getElementById('importRestream_url').value.trim();
+  if (!url) { alert('Please enter an M3U URL'); return; }
+  const btn = document.querySelector('[data-action="parseM3UForRestream"]');
+  btn.textContent = 'Parsing...';
+  btn.disabled = true;
+  try {
+    const data = await api('/api/admin/import-restream', 'POST', { url });
+    const channels = data.channels || data || [];
+    const tbody = document.getElementById('importRestreamTable');
+    if (!channels.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#5a6a8a;padding:20px">No channels found</td></tr>';
+    } else {
+      tbody.innerHTML = channels.map((ch, i) => `
+        <tr style="border-bottom:1px solid #1e2844">
+          <td style="padding:8px"><input type="checkbox" class="importRestream_chk" data-index="${i}" data-name="${(ch.name||'').replace(/"/g,'&quot;')}" data-url="${(ch.url||'').replace(/"/g,'&quot;')}" checked></td>
+          <td style="padding:8px;color:#e0e6ff">${ch.name || 'Unknown'}</td>
+          <td style="padding:8px;color:#5a6a8a;font-size:11px;word-break:break-all;max-width:300px">${ch.url || ''}</td>
+          <td style="padding:8px;color:#8899bb">${ch.group || ch.group_title || ''}</td>
+        </tr>`).join('');
+    }
+    document.getElementById('importRestreamResults').style.display = 'block';
+    document.getElementById('importRestream_selectAll').checked = true;
+  } catch(e) { alert('Failed to parse M3U: ' + e.message); }
+  finally { btn.textContent = 'Parse M3U'; btn.disabled = false; }
+}
+
+async function addSelectedToRestream() {
+  const checked = document.querySelectorAll('.importRestream_chk:checked');
+  if (!checked.length) { alert('No channels selected'); return; }
+  const btn = document.querySelector('[data-action="addSelectedToRestream"]');
+  btn.textContent = `Adding ${checked.length}...`;
+  btn.disabled = true;
+  let added = 0, failed = 0;
+  for (const chk of checked) {
+    try {
+      await api('/restream/add-stream', 'POST', { name: chk.dataset.name, url: chk.dataset.url });
+      added++;
+    } catch(e) { failed++; }
+  }
+  btn.textContent = 'Add Selected to Restream';
+  btn.disabled = false;
+  alert(`Done: ${added} added${failed ? ', ' + failed + ' failed' : ''}.`);
+  if (added > 0) loadRestreams();
 }
 </script>
 </body>
