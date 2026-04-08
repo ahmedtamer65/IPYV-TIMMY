@@ -860,7 +860,7 @@ app.get('/player_api.php', (req, res) => {
     const channels = getAll("SELECT * FROM channels WHERE is_active = 1 AND name != '__category_placeholder__' ORDER BY sort_order");
     const cats = [...new Set(channels.map(c => c.category))];
     const baseUrl = req.protocol + '://' + req.get('host');
-    return res.json(channels.map(c => {
+    const result = channels.map(c => {
       // Determine container extension from URL
       const ext = c.stream_url && c.stream_url.includes('.m3u8') ? 'm3u8' : 'ts';
       return {
