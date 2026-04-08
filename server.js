@@ -239,6 +239,59 @@ app.put('/api/admin/suspicious/:id/resolve', (req, res) => {
   res.json({ message: 'Resolved' });
 });
 
+// ===== WATERMARK PROXY (FFmpeg overlay) =====
+// Pipes stream through FFmpeg to burn watermark into video for ALL players
+function proxyWithWatermark(url, req, res, watermarkOpts) {
+  const { spawn } = require('child_process');
+  const wm = watermarkOpts || {};
+  const wmUrl = wm.url || '';
+  const opacity = wm.opacity || 0.8;
+  const size = wm.size || 120;
+  const position = wm.position || 'top-right';
+
+  // Calculate overlay position
+  let overlayPos = 'W-w-10:10'; // top-right default
+  if (position === 'top-left') overlayPos = '10:10';
+  else if (position === 'top-right') overlayPos = 'W-w-10:10';
+  else if (position === 'bottom-left') overlayPos = '10:H-h-10';
+  else if (position === 'bottom-right') overlayPos = 'W-w-10:H-h-10';
+  else if (position === 'center') overlayPos = '(W-w)/2:(H-h)/2';
+
+  // FFmpeg command: input stream + watermark image overlay
+  const ffArgs = [
+    '-i', url,
+    '-i', wmUrl,
+    '-filter_complex', `[1:v]scale=${size}:-1,format=rgba,colorchannelmixer=aa=${opacity}[wm];[0:v][wm]overlay=${overlayPos}`,
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+    '-c:a', 'copy',
+    '-f', 'mpegts',
+    '-movflags', 'frag_keyframe+empty_moov',
+    '-'
+  ];
+
+  try {
+    const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+
+    res.setHeader('Content-Type', 'video/mp2t');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-cache');
+
+    ffmpeg.stdout.pipe(res);
+    ffmpeg.stderr.on('data', () => {}); // suppress logs
+
+    ffmpeg.on('error', (err) => {
+      console.log('FFmpeg not available, falling back to regular proxy');
+      proxyUrl(url, req, res, 'video/mp2t');
+    });
+
+    ffmpeg.on('close', () => { if (!res.writableEnded) res.end(); });
+    req.on('close', () => { ffmpeg.kill('SIGKILL'); });
+  } catch(e) {
+    // FFmpeg not installed — fallback to regular proxy
+    proxyUrl(url, req, res, 'video/mp2t');
+  }
+}
+
 // ===== UNIVERSAL PROXY FUNCTION =====
 // Proxies any external URL through our server (follows redirects, no timeout for streams)
 function proxyUrl(url, req, res, defaultContentType) {
@@ -347,6 +400,25 @@ app.get('/:username/:password/:streamId', (req, res, next) => {
 
   let streamUrl = channel.stream_url;
 
+  // Check watermark settings
+  const wmUrl = channel.watermark_url || '';
+  const globalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
+  const globalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_channels'");
+  const useWm = channel.watermark !== 0 && (globalWmOn ? globalWmOn.value !== '0' : true) && (wmUrl || (globalWm && globalWm.value));
+  if (useWm) {
+    const finalWmUrl = wmUrl || (globalWm ? globalWm.value : '');
+    if (finalWmUrl) {
+      const globalPos = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
+      const globalOpacity = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
+      return proxyWithWatermark(streamUrl, req, res, {
+        url: finalWmUrl,
+        position: channel.watermark_position || (globalPos ? globalPos.value : 'top-right'),
+        opacity: channel.watermark_opacity || (globalOpacity ? parseFloat(globalOpacity.value) : 0.8),
+        size: channel.watermark_size || 120
+      });
+    }
+  }
+
   // Local file
   if (streamUrl.startsWith('/media/') || streamUrl.startsWith('/hls/')) {
     const filePath = path.join(BASE_DIR, streamUrl);
@@ -451,12 +523,29 @@ app.get('/movie/:username/:password/:movieId', (req, res, next) => {
   detectAccountSharing(user.id, user.username, req);
 
   const videoUrl = movie.video_url;
+
+  // Watermark check for movies
+  const mWmUrl = movie.watermark_url || '';
+  const mGlobalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
+  const mGlobalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_movies'");
+  const mUseWm = movie.watermark !== 0 && (mGlobalWmOn ? mGlobalWmOn.value !== '0' : true) && (mWmUrl || (mGlobalWm && mGlobalWm.value));
+  if (mUseWm) {
+    const finalWm = mWmUrl || (mGlobalWm ? mGlobalWm.value : '');
+    if (finalWm) {
+      const gp = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
+      const go = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
+      return proxyWithWatermark(videoUrl, req, res, {
+        url: finalWm, position: movie.watermark_position || (gp?gp.value:'top-right'),
+        opacity: movie.watermark_opacity || (go?parseFloat(go.value):0.8), size: movie.watermark_size || 120
+      });
+    }
+  }
+
   if (videoUrl.startsWith('/media/') || videoUrl.startsWith('/hls/')) {
     const filePath = path.join(BASE_DIR, videoUrl);
     if (fs.existsSync(filePath)) return res.sendFile(filePath);
     return res.status(404).send('File not found');
   }
-  // Proxy instead of redirect — external players don't follow redirects
   proxyUrl(videoUrl, req, res, 'video/mp4');
 });
 
@@ -485,12 +574,30 @@ app.get('/series/:username/:password/:episodeId', (req, res, next) => {
   detectAccountSharing(user.id, user.username, req);
 
   const videoUrl = episode.video_url;
+
+  // Watermark check for series
+  const ser = getOne('SELECT * FROM series WHERE id = ?', [episode.series_id]);
+  const sWmUrl = ser?.watermark_url || '';
+  const sGlobalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
+  const sGlobalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_series'");
+  const sUseWm = (ser?.watermark !== 0) && (sGlobalWmOn ? sGlobalWmOn.value !== '0' : true) && (sWmUrl || (sGlobalWm && sGlobalWm.value));
+  if (sUseWm) {
+    const finalWm = sWmUrl || (sGlobalWm ? sGlobalWm.value : '');
+    if (finalWm) {
+      const gp = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
+      const go = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
+      return proxyWithWatermark(videoUrl, req, res, {
+        url: finalWm, position: ser?.watermark_position || (gp?gp.value:'top-right'),
+        opacity: ser?.watermark_opacity || (go?parseFloat(go.value):0.8), size: ser?.watermark_size || 120
+      });
+    }
+  }
+
   if (videoUrl.startsWith('/media/') || videoUrl.startsWith('/hls/')) {
     const filePath = path.join(BASE_DIR, videoUrl);
     if (fs.existsSync(filePath)) return res.sendFile(filePath);
     return res.status(404).send('File not found');
   }
-  // Proxy instead of redirect
   proxyUrl(videoUrl, req, res, 'video/mp4');
 });
 
@@ -744,7 +851,12 @@ app.get('/player_api.php', (req, res) => {
         tv_archive: 0,
         direct_source: c.stream_url || '',
         tv_archive_duration: 0,
-        container_extension: ext
+        container_extension: ext,
+        watermark: c.watermark,
+        watermark_url: c.watermark_url || '',
+        watermark_position: c.watermark_position || '',
+        watermark_opacity: c.watermark_opacity,
+        watermark_size: c.watermark_size
       };
     }));
   }
@@ -776,7 +888,12 @@ app.get('/player_api.php', (req, res) => {
       category_ids: [cats.indexOf(m.category) + 100],
       container_extension: 'mp4',
       custom_sid: '',
-      direct_source: ''
+      direct_source: '',
+      watermark: m.watermark,
+      watermark_url: m.watermark_url || '',
+      watermark_position: m.watermark_position || '',
+      watermark_opacity: m.watermark_opacity,
+      watermark_size: m.watermark_size
     })));
   }
 

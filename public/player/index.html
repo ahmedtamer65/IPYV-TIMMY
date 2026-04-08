@@ -192,9 +192,10 @@
 
   <!-- Player Area -->
   <div style="max-width:1400px;margin:0 auto;padding:0 20px">
-    <div class="player-area" id="playerArea">
+    <div class="player-area" id="playerArea" style="position:relative">
       <button class="close-btn" data-act="closePlayer">✕ Close</button>
       <video id="videoPlayer" controls autoplay></video>
+      <div id="videoWatermark" style="display:none;position:absolute;pointer-events:none;z-index:5"></div>
     </div>
     <div class="player-meta" id="playerMeta" style="display:none">
       <h2 id="playerTitle"></h2>
@@ -247,6 +248,11 @@ let token = null;
 let channels=[], movies=[], series=[];
 let loginMode = 'xtream'; // xtream or direct
 let xtreamCredentials = null; // {host, username, password}
+
+// Load global watermark settings
+fetch('/api/settings/public').then(r=>r.json()).then(s=>{
+  window._globalWatermark = { url: s.watermark_url||'', position: s.watermark_position||'top-right', opacity: parseFloat(s.watermark_opacity)||0.8, size: 120 };
+}).catch(()=>{});
 
 const catLabels = {
   'bein-sports':'beIN Sports','bein-premium':'beIN Premium','bein-movies':'beIN Movies','bein-entertainment':'beIN Entertainment',
@@ -686,6 +692,7 @@ function playLive(id) {
   if(!ch) return;
   window._currentBackups = [ch.backup_url, ch.backup_url2].filter(u => u);
   window._currentBackupIndex = 0;
+  window._currentWatermark = { url: ch.watermark_url || window._globalWatermark?.url, position: ch.watermark_position || window._globalWatermark?.position, opacity: ch.watermark_opacity || window._globalWatermark?.opacity, size: ch.watermark_size || window._globalWatermark?.size, enabled: ch.watermark !== 0 };
   playVideo(ch.stream_url||'', ch.name, 'Live - '+(catLabels[ch.category]||ch.category));
 }
 
@@ -694,8 +701,8 @@ function playMovie(id) {
   if(!m) return;
   window._currentBackups = [m.backup_url, m.backup_url2].filter(u => u);
   window._currentBackupIndex = 0;
+  window._currentWatermark = { url: m.watermark_url || window._globalWatermark?.url, position: m.watermark_position || window._globalWatermark?.position, opacity: m.watermark_opacity || window._globalWatermark?.opacity, size: m.watermark_size || window._globalWatermark?.size, enabled: m.watermark !== 0 };
   let url = m.video_url || '';
-  // In Xtream mode, build the movie stream URL
   if (loginMode === 'xtream' && xtreamCredentials && (!url || url === '')) {
     const {host, username, password} = xtreamCredentials;
     url = `${host}/movie/${username}/${password}/${id}.mp4`;
@@ -901,6 +908,9 @@ function playVideo(url, title, desc) {
   document.getElementById('playerMeta').style.display = 'block';
   area.classList.add('show');
   window.scrollTo({top:0, behavior:'smooth'});
+
+  // Show watermark if configured
+  showWatermark(window._currentWatermark);
 }
 
 function closePlayer() {
@@ -910,6 +920,19 @@ function closePlayer() {
   video.pause(); video.removeAttribute('src'); video.load();
   document.getElementById('playerArea').classList.remove('show');
   document.getElementById('playerMeta').style.display = 'none';
+  document.getElementById('videoWatermark').style.display = 'none';
+}
+
+function showWatermark(wm) {
+  const el = document.getElementById('videoWatermark');
+  if (!wm || !wm.url || wm.enabled === false) { el.style.display = 'none'; return; }
+  const pos = wm.position || 'top-right';
+  el.style.cssText = 'position:absolute;pointer-events:none;z-index:5;display:block;';
+  el.style.opacity = wm.opacity || 0.8;
+  const size = (wm.size || 120) + 'px';
+  if (pos.includes('top')) el.style.top = '10px'; else if (pos.includes('bottom')) el.style.bottom = '10px'; else { el.style.top = '50%'; el.style.transform = 'translate(-50%,-50%)'; }
+  if (pos.includes('right')) el.style.right = '10px'; else if (pos.includes('left')) el.style.left = '10px'; else { el.style.left = '50%'; }
+  el.innerHTML = '<img src="' + wm.url + '" style="max-width:' + size + ';max-height:' + size + '" onerror="this.parentElement.style.display=\'none\'">';
 }
 
 // TABS
