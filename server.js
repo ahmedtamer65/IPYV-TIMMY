@@ -1275,6 +1275,23 @@ function fetchJson(url) {
   });
 }
 
+// ===== CHANGE ADMIN PASSWORD =====
+app.post('/api/admin/change-password', (req, res) => {
+  const admin = requireAdmin(req, res);
+  if (!admin) return;
+  const { old_password, new_password } = req.body;
+  if (!old_password || !new_password) return res.status(400).json({ error: 'Both old and new password required' });
+  if (new_password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+  const user = getOne('SELECT * FROM users WHERE id = ?', [admin.id]);
+  if (!user || !bcrypt.compareSync(old_password, user.password)) {
+    return res.status(400).json({ error: 'Current password is incorrect' });
+  }
+  const hash = bcrypt.hashSync(new_password, 10);
+  run('UPDATE users SET password = ? WHERE id = ?', [hash, admin.id]);
+  res.json({ message: 'Password changed successfully' });
+});
+
 // ===== DATABASE BACKUP & RESTORE =====
 // Download database file
 app.get('/api/admin/backup/download', (req, res) => {

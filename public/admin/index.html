@@ -122,8 +122,8 @@
     <h1>IPTV Admin</h1>
     <div class="subtitle">Control Panel</div>
     <div class="login-error" id="loginError"></div>
-    <input type="text" id="loginUser" placeholder="Username" value="admin">
-    <input type="password" id="loginPass" placeholder="Password" value="admin123">
+    <input type="text" id="loginUser" placeholder="Username" value="">
+    <input type="password" id="loginPass" placeholder="Password" value="">
     <button id="btnLogin">Login</button>
   </div>
 </div>
@@ -443,6 +443,38 @@
         <div id="backupStatus" style="margin-top:12px;font-size:13px;display:none"></div>
       </div>
 
+      <!-- Admin Password & Staff -->
+      <div class="card-section" style="padding:24px;margin-bottom:20px">
+        <h3 style="color:#ff6b81;margin-bottom:16px">Change Admin Password</h3>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:end">
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Current Password</label>
+            <input id="admin_old_pass" type="password" class="search-box" placeholder="Current password" style="width:200px">
+          </div>
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">New Password</label>
+            <input id="admin_new_pass" type="password" class="search-box" placeholder="New password" style="width:200px">
+          </div>
+          <button class="btn btn-danger" data-action="changeAdminPass">Change Password</button>
+        </div>
+        <div id="adminPassStatus" style="font-size:13px;display:none"></div>
+        <hr style="border-color:#1e2844;margin:20px 0">
+        <h3 style="color:#00d4ff;margin-bottom:16px">Staff Accounts</h3>
+        <p style="color:#5a6a8a;font-size:12px;margin-bottom:12px">Add staff members with admin access to help manage the panel.</p>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:end">
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Username</label>
+            <input id="staff_user" class="search-box" placeholder="staff_username" style="width:180px">
+          </div>
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Password</label>
+            <input id="staff_pass" type="text" class="search-box" placeholder="password" style="width:180px">
+          </div>
+          <button class="btn btn-success" data-action="addStaff">+ Add Staff</button>
+        </div>
+        <div id="staffList"></div>
+      </div>
+
       <!-- Branding Settings -->
       <div class="card-section" style="padding:24px;margin-bottom:20px">
         <h3 style="color:#00ff88;margin-bottom:16px">Branding Settings</h3>
@@ -475,6 +507,14 @@
         <div style="margin-bottom:16px">
           <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:6px">Watermark Opacity: <span id="branding_opacity_val">0.8</span></label>
           <input id="branding_watermark_opacity" type="range" min="0.1" max="1.0" step="0.05" value="0.8" style="width:300px;accent-color:#00ff88" oninput="document.getElementById('branding_opacity_val').textContent=parseFloat(this.value).toFixed(2)">
+        </div>
+        <div style="margin-bottom:16px">
+          <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:8px">Show Watermark On:</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e0e0e0;font-size:13px"><input type="checkbox" id="wm_on_channels" checked> 📺 Live Channels</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e0e0e0;font-size:13px"><input type="checkbox" id="wm_on_movies" checked> 🎬 Movies</label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e0e0e0;font-size:13px"><input type="checkbox" id="wm_on_series" checked> 📀 Series</label>
+          </div>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn btn-success" data-action="saveSettings">Save Settings</button>
@@ -784,6 +824,7 @@ function openChannelModal(id=null) {
     <label>Backup URL 2</label><input id="m_chbackup2" value="${c?.backup_url2||''}" placeholder="Second backup (optional)">
     <label>Logo URL</label><input id="m_chlogo" value="${c?.logo_url||''}" placeholder="Optional">
     <label>Sort Order</label><input id="m_chorder" type="number" value="${c?.sort_order||0}">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_chwatermark" ${c?.watermark!==0?'checked':''}> Show Watermark on this channel</label>
     <div class="modal-actions">
       <button class="btn btn-primary" data-action="saveChannel" data-id="${c?.id||'null'}">${c?'Update':'Create'}</button>
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
@@ -800,7 +841,8 @@ async function saveChannel(id) {
     backup_url: document.getElementById('m_chbackup').value,
     backup_url2: document.getElementById('m_chbackup2').value,
     logo_url: document.getElementById('m_chlogo').value,
-    sort_order: parseInt(document.getElementById('m_chorder').value)||0
+    sort_order: parseInt(document.getElementById('m_chorder').value)||0,
+    watermark: document.getElementById('m_chwatermark').checked ? 1 : 0
   };
   await api(id?`/api/admin/channels/${id}`:'/api/admin/channels',id?'PUT':'POST',body);
   closeModal(); await loadChannels();
@@ -870,6 +912,7 @@ function openMovieModal(id=null) {
       <div style="flex:2"><label>Backdrop URL</label><input id="m_mbackdrop" value="${m?.backdrop_url||''}" placeholder="Optional - wide image"></div>
     </div>
     ${m?.poster_url ? `<div style="margin:8px 0;text-align:center"><img src="${m.poster_url}" style="max-height:120px;border-radius:8px" onerror="this.style.display='none'"></div>` : ''}
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_mwatermark" ${m?.watermark!==0?'checked':''}> Show Watermark on this movie</label>
     <div class="modal-actions">
       <button class="btn btn-primary" data-action="saveMovie" data-id="${m?.id||'null'}">${m?'Update':'Create'}</button>
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
@@ -891,7 +934,8 @@ async function saveMovie(id) {
     cast_list: document.getElementById('m_mcast').value,
     director: document.getElementById('m_mdir').value,
     genre: document.getElementById('m_mgenre').value,
-    backdrop_url: document.getElementById('m_mbackdrop').value
+    backdrop_url: document.getElementById('m_mbackdrop').value,
+    watermark: document.getElementById('m_mwatermark').checked ? 1 : 0
   };
   await api(id?`/api/admin/movies/${id}`:'/api/admin/movies',id?'PUT':'POST',body);
   closeModal(); await loadMovies();
@@ -945,6 +989,7 @@ function openSeriesModal(id=null) {
       <div><label>Rating</label><input id="m_srating" type="number" step="0.1" max="10" value="${s?.rating||''}"></div>
     </div>
     <label>Poster URL</label><input id="m_sposter" value="${s?.poster_url||''}" placeholder="Optional">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer"><input type="checkbox" id="m_swatermark" ${s?.watermark!==0?'checked':''}> Show Watermark on this series</label>
     <div class="modal-actions">
       <button class="btn btn-primary" data-action="saveSeries" data-id="${s?.id||'null'}">${s?'Update':'Create'}</button>
       <button class="btn btn-ghost" data-action="closeModal">Cancel</button>
@@ -961,7 +1006,8 @@ async function saveSeries(id) {
     total_seasons: parseInt(document.getElementById('m_sseasons').value)||1,
     year: parseInt(document.getElementById('m_syear').value)||null,
     rating: parseFloat(document.getElementById('m_srating').value)||null,
-    poster_url: document.getElementById('m_sposter').value
+    poster_url: document.getElementById('m_sposter').value,
+    watermark: document.getElementById('m_swatermark').checked ? 1 : 0
   };
   await api(id?`/api/admin/series/${id}`:'/api/admin/series',id?'PUT':'POST',body);
   closeModal(); await loadSeries();
@@ -1414,7 +1460,7 @@ function showSection(name) {
   if(name==='security') loadSecurity();
   if(name==='servers') loadServers();
   if(name==='autoimport') loadImportSources();
-  if(name==='settings') {
+  if(name==='settings') { loadStaffList();
     document.getElementById('settingsUrl').textContent = window.location.origin;
     document.getElementById('settingsPort').textContent = window.location.port || '80';
     document.getElementById('settingsPlayer').textContent = window.location.origin + '/player';
@@ -1575,6 +1621,8 @@ document.addEventListener('click', function(e) {
     case 'generateM3U': generateM3U(); break;
     // Branding & Import Restream
     case 'downloadBackup': downloadBackup(); break;
+    case 'changeAdminPass': changeAdminPassword(); break;
+    case 'addStaff': addStaffAccount(); break;
     case 'saveSettings': saveSettings(); break;
     case 'previewWatermark': window.open('/api/admin/watermark-preview', '_blank'); break;
     case 'parseM3UForRestream': parseM3UForRestream(); break;
@@ -1833,6 +1881,52 @@ async function doBulkImport() {
   }
 }
 
+// ===== ADMIN PASSWORD & STAFF =====
+async function changeAdminPassword() {
+  const oldPass = document.getElementById('admin_old_pass').value;
+  const newPass = document.getElementById('admin_new_pass').value;
+  const statusEl = document.getElementById('adminPassStatus');
+  statusEl.style.display = 'block';
+  if (!oldPass || !newPass) { statusEl.innerHTML = '<span style="color:#ff4757">Fill both fields</span>'; return; }
+  if (newPass.length < 6) { statusEl.innerHTML = '<span style="color:#ff4757">Password must be at least 6 characters</span>'; return; }
+  try {
+    await api('/api/admin/change-password', 'POST', { old_password: oldPass, new_password: newPass });
+    statusEl.innerHTML = '<span style="color:#00ff88">Password changed successfully!</span>';
+    document.getElementById('admin_old_pass').value = '';
+    document.getElementById('admin_new_pass').value = '';
+  } catch(e) { statusEl.innerHTML = '<span style="color:#ff4757">' + e.message + '</span>'; }
+}
+
+async function addStaffAccount() {
+  const username = document.getElementById('staff_user').value.trim();
+  const password = document.getElementById('staff_pass').value;
+  if (!username || !password) return alert('Fill username and password');
+  try {
+    await api('/api/admin/users', 'POST', { username, password, role: 'admin', subscription: 'unlimited', max_connections: 10 });
+    document.getElementById('staff_user').value = '';
+    document.getElementById('staff_pass').value = '';
+    loadStaffList();
+    alert('Staff account created: ' + username);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function loadStaffList() {
+  try {
+    const users = await api('/api/admin/users');
+    const staff = users.filter(u => u.role === 'admin');
+    document.getElementById('staffList').innerHTML = staff.length <= 1
+      ? '<div style="color:#5a6a8a;font-size:12px">No staff accounts yet (only you)</div>'
+      : '<table style="width:100%;font-size:13px"><thead><tr><th style="text-align:left;color:#5a6a8a;padding:6px">Username</th><th style="text-align:left;color:#5a6a8a;padding:6px">Created</th><th style="color:#5a6a8a;padding:6px">Action</th></tr></thead><tbody>' +
+        staff.map(u => `<tr><td style="padding:6px;color:#e0e0e0">${u.username} ${u.id===1?'<span style="color:#00ff88;font-size:10px">(main admin)</span>':''}</td><td style="padding:6px;color:#5a6a8a">${u.created_at||'-'}</td><td style="padding:6px">${u.id!==1?`<button class="btn btn-danger" style="padding:3px 10px;font-size:11px" onclick="removeStaff(${u.id},'${u.username}')">Remove</button>`:''}</td></tr>`).join('') +
+        '</tbody></table>';
+  } catch(e) {}
+}
+
+async function removeStaff(id, username) {
+  if (!confirm('Remove staff account "' + username + '"?')) return;
+  try { await api('/api/admin/users/' + id, 'DELETE'); loadStaffList(); } catch(e) { alert(e.message); }
+}
+
 // ===== DATABASE BACKUP & RESTORE =====
 function downloadBackup() {
   const statusEl = document.getElementById('backupStatus');
@@ -1944,6 +2038,7 @@ function openCustomChannelModal(channel) {
       <textarea id="cc_urls" rows="8" style="width:100%;box-sizing:border-box;background:#0a0e1a;border:1px solid #1e2844;border-radius:8px;color:#e0e0e0;font-size:13px;padding:10px;font-family:monospace;resize:vertical" placeholder="https://example.com/movie1.mp4&#10;https://example.com/movie2.mp4&#10;https://example.com/movie3.mp4">${urls.join('\n')}</textarea>
       <div style="font-size:11px;color:#5a6a8a;margin-top:4px">Supports: mp4, mkv, m3u8 links. Each video plays ~2 hours then switches to next.</div>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="cc_watermark" ${channel?.watermark!==0?'checked':''}> Show Watermark on this channel</label>
     <div style="display:flex;gap:10px">
       <button class="btn btn-success" data-action="saveCustomChannel">Save Channel</button>
       <button class="btn" data-action="closeModal">Cancel</button>
@@ -1961,8 +2056,9 @@ async function saveCustomChannel() {
   const video_urls = document.getElementById('cc_urls').value.split('\n').map(u => u.trim()).filter(u => u);
 
   if (video_urls.length === 0) return alert('Add at least one video URL');
+  const watermark = document.getElementById('cc_watermark').checked ? 1 : 0;
 
-  const body = { name, description, logo_url, video_urls };
+  const body = { name, description, logo_url, video_urls, watermark };
   if (id) {
     await api('/api/admin/custom-channels/' + id, 'PUT', body);
   } else {
@@ -2189,6 +2285,9 @@ async function loadSettings() {
       document.getElementById('branding_watermark_opacity').value = opacity;
       document.getElementById('branding_opacity_val').textContent = opacity.toFixed(2);
     }
+    document.getElementById('wm_on_channels').checked = data.wm_on_channels !== '0';
+    document.getElementById('wm_on_movies').checked = data.wm_on_movies !== '0';
+    document.getElementById('wm_on_series').checked = data.wm_on_series !== '0';
   } catch(e) { /* silently ignore if endpoint not yet available */ }
 }
 
@@ -2198,10 +2297,15 @@ async function saveSettings() {
     logo_url: document.getElementById('branding_logo_url').value,
     watermark_url: document.getElementById('branding_watermark_url').value,
     watermark_position: document.getElementById('branding_watermark_position').value,
-    watermark_opacity: parseFloat(document.getElementById('branding_watermark_opacity').value)
+    watermark_opacity: parseFloat(document.getElementById('branding_watermark_opacity').value),
+    wm_on_channels: document.getElementById('wm_on_channels').checked ? '1' : '0',
+    wm_on_movies: document.getElementById('wm_on_movies').checked ? '1' : '0',
+    wm_on_series: document.getElementById('wm_on_series').checked ? '1' : '0'
   };
   try {
-    await api('/api/admin/settings', 'PUT', body);
+    for (const [key, value] of Object.entries(body)) {
+      await api('/api/admin/settings', 'PUT', { key, value: String(value) });
+    }
     const btn = document.querySelector('[data-action="saveSettings"]');
     const orig = btn.textContent;
     btn.textContent = 'Saved!';

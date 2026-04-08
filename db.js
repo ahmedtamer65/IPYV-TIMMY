@@ -208,6 +208,7 @@ async function init() {
     sort_order INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   )`);
+  try { db.run('ALTER TABLE channels ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
 
   // Movies
   db.run(`CREATE TABLE IF NOT EXISTS movies (
@@ -236,6 +237,7 @@ async function init() {
   try { db.run('ALTER TABLE movies ADD COLUMN genre TEXT'); } catch(e) {}
   try { db.run('ALTER TABLE movies ADD COLUMN backdrop_url TEXT'); } catch(e) {}
   try { db.run('ALTER TABLE movies ADD COLUMN tmdb_id INTEGER'); } catch(e) {}
+  try { db.run('ALTER TABLE movies ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
 
   // Series
   db.run(`CREATE TABLE IF NOT EXISTS series (
@@ -260,6 +262,7 @@ async function init() {
   try { db.run('ALTER TABLE series ADD COLUMN genre TEXT'); } catch(e) {}
   try { db.run('ALTER TABLE series ADD COLUMN backdrop_url TEXT'); } catch(e) {}
   try { db.run('ALTER TABLE series ADD COLUMN tmdb_id INTEGER'); } catch(e) {}
+  try { db.run('ALTER TABLE series ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
 
   // Episodes
   db.run(`CREATE TABLE IF NOT EXISTS episodes (
@@ -370,9 +373,11 @@ async function init() {
     description TEXT,
     logo_url TEXT,
     video_urls TEXT DEFAULT '[]',
+    watermark INTEGER DEFAULT 1,
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
   )`);
+  try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
 
   // === SEED DATA ===
 

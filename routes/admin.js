@@ -153,9 +153,9 @@ router.get('/channels', (req, res) => {
 
 router.post('/channels', (req, res) => {
   try {
-    const { name, category, stream_url, backup_url, backup_url2, logo_url, sort_order } = req.body;
-    const result = run('INSERT INTO channels (name, category, stream_url, backup_url, backup_url2, logo_url, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      [name, category || 'general', stream_url || '', backup_url || '', backup_url2 || '', logo_url || '', sort_order || 0]);
+    const { name, category, stream_url, backup_url, backup_url2, logo_url, sort_order, watermark } = req.body;
+    const result = run('INSERT INTO channels (name, category, stream_url, backup_url, backup_url2, logo_url, sort_order, watermark) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [name, category || 'general', stream_url || '', backup_url || '', backup_url2 || '', logo_url || '', sort_order || 0, watermark !== undefined ? watermark : 1]);
     res.json({ id: result.lastInsertRowid, message: 'Channel created' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -163,13 +163,13 @@ router.post('/channels', (req, res) => {
 });
 
 router.put('/channels/:id', (req, res) => {
-  const { name, category, stream_url, backup_url, backup_url2, logo_url, is_active, sort_order } = req.body;
+  const { name, category, stream_url, backup_url, backup_url2, logo_url, is_active, sort_order, watermark } = req.body;
   const ch = getOne('SELECT * FROM channels WHERE id = ?', [req.params.id]);
   if (!ch) return res.status(404).json({ error: 'Channel not found' });
-  run('UPDATE channels SET name=?, category=?, stream_url=?, backup_url=?, backup_url2=?, logo_url=?, is_active=?, sort_order=? WHERE id=?', [
+  run('UPDATE channels SET name=?, category=?, stream_url=?, backup_url=?, backup_url2=?, logo_url=?, is_active=?, sort_order=?, watermark=? WHERE id=?', [
     name ?? ch.name, category ?? ch.category, stream_url ?? ch.stream_url,
     backup_url ?? ch.backup_url, backup_url2 ?? ch.backup_url2,
-    logo_url ?? ch.logo_url, is_active ?? ch.is_active, sort_order ?? ch.sort_order, req.params.id
+    logo_url ?? ch.logo_url, is_active ?? ch.is_active, sort_order ?? ch.sort_order, watermark ?? ch.watermark, req.params.id
   ]);
   res.json({ message: 'Channel updated' });
 });
@@ -186,9 +186,9 @@ router.get('/movies', (req, res) => {
 
 router.post('/movies', (req, res) => {
   try {
-    const { title, description, category, poster_url, video_url, duration, year, rating, cast_list, director, genre, backdrop_url } = req.body;
-    const result = run('INSERT INTO movies (title, description, category, poster_url, video_url, duration, year, rating, cast_list, director, genre, backdrop_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [title, description, category || 'general', poster_url || '', video_url || '', duration, year, rating, cast_list || '', director || '', genre || '', backdrop_url || '']);
+    const { title, description, category, poster_url, video_url, duration, year, rating, cast_list, director, genre, backdrop_url, watermark } = req.body;
+    const result = run('INSERT INTO movies (title, description, category, poster_url, video_url, duration, year, rating, cast_list, director, genre, backdrop_url, watermark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [title, description, category || 'general', poster_url || '', video_url || '', duration, year, rating, cast_list || '', director || '', genre || '', backdrop_url || '', watermark !== undefined ? watermark : 1]);
     res.json({ id: result.lastInsertRowid, message: 'Movie created' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -196,15 +196,15 @@ router.post('/movies', (req, res) => {
 });
 
 router.put('/movies/:id', (req, res) => {
-  const { title, description, category, poster_url, video_url, duration, year, rating, is_active, cast_list, director, genre, backdrop_url } = req.body;
+  const { title, description, category, poster_url, video_url, duration, year, rating, is_active, cast_list, director, genre, backdrop_url, watermark } = req.body;
   const mv = getOne('SELECT * FROM movies WHERE id = ?', [req.params.id]);
   if (!mv) return res.status(404).json({ error: 'Movie not found' });
-  run('UPDATE movies SET title=?, description=?, category=?, poster_url=?, video_url=?, duration=?, year=?, rating=?, is_active=?, cast_list=?, director=?, genre=?, backdrop_url=? WHERE id=?', [
+  run('UPDATE movies SET title=?, description=?, category=?, poster_url=?, video_url=?, duration=?, year=?, rating=?, is_active=?, cast_list=?, director=?, genre=?, backdrop_url=?, watermark=? WHERE id=?', [
     title ?? mv.title, description ?? mv.description, category ?? mv.category,
     poster_url ?? mv.poster_url, video_url ?? mv.video_url, duration ?? mv.duration,
     year ?? mv.year, rating ?? mv.rating, is_active ?? mv.is_active,
     cast_list ?? mv.cast_list, director ?? mv.director, genre ?? mv.genre,
-    backdrop_url ?? mv.backdrop_url, req.params.id
+    backdrop_url ?? mv.backdrop_url, watermark ?? mv.watermark, req.params.id
   ]);
   res.json({ message: 'Movie updated' });
 });
@@ -225,9 +225,9 @@ router.get('/series', (req, res) => {
 
 router.post('/series', (req, res) => {
   try {
-    const { title, description, category, poster_url, total_seasons, year, rating, cast_list, director, genre, backdrop_url } = req.body;
-    const result = run('INSERT INTO series (title, description, category, poster_url, total_seasons, year, rating, cast_list, director, genre, backdrop_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [title, description, category || 'drama', poster_url || '', total_seasons || 1, year, rating, cast_list || '', director || '', genre || '', backdrop_url || '']);
+    const { title, description, category, poster_url, total_seasons, year, rating, cast_list, director, genre, backdrop_url, watermark } = req.body;
+    const result = run('INSERT INTO series (title, description, category, poster_url, total_seasons, year, rating, cast_list, director, genre, backdrop_url, watermark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [title, description, category || 'drama', poster_url || '', total_seasons || 1, year, rating, cast_list || '', director || '', genre || '', backdrop_url || '', watermark !== undefined ? watermark : 1]);
     res.json({ id: result.lastInsertRowid, message: 'Series created' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -235,15 +235,15 @@ router.post('/series', (req, res) => {
 });
 
 router.put('/series/:id', (req, res) => {
-  const { title, description, category, poster_url, total_seasons, year, rating, is_active, cast_list, director, genre, backdrop_url } = req.body;
+  const { title, description, category, poster_url, total_seasons, year, rating, is_active, cast_list, director, genre, backdrop_url, watermark } = req.body;
   const s = getOne('SELECT * FROM series WHERE id = ?', [req.params.id]);
   if (!s) return res.status(404).json({ error: 'Series not found' });
-  run('UPDATE series SET title=?, description=?, category=?, poster_url=?, total_seasons=?, year=?, rating=?, is_active=?, cast_list=?, director=?, genre=?, backdrop_url=? WHERE id=?', [
+  run('UPDATE series SET title=?, description=?, category=?, poster_url=?, total_seasons=?, year=?, rating=?, is_active=?, cast_list=?, director=?, genre=?, backdrop_url=?, watermark=? WHERE id=?', [
     title ?? s.title, description ?? s.description, category ?? s.category,
     poster_url ?? s.poster_url, total_seasons ?? s.total_seasons,
     year ?? s.year, rating ?? s.rating, is_active ?? s.is_active,
     cast_list ?? s.cast_list, director ?? s.director, genre ?? s.genre,
-    backdrop_url ?? s.backdrop_url, req.params.id
+    backdrop_url ?? s.backdrop_url, watermark ?? s.watermark, req.params.id
   ]);
   res.json({ message: 'Series updated' });
 });
