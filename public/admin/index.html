@@ -509,12 +509,22 @@
           <input id="branding_watermark_opacity" type="range" min="0.1" max="1.0" step="0.05" value="0.8" style="width:300px;accent-color:#00ff88" oninput="document.getElementById('branding_opacity_val').textContent=parseFloat(this.value).toFixed(2)">
         </div>
         <div style="margin-bottom:16px">
+          <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:6px">Watermark Size: <span id="branding_size_val">120</span>px</label>
+          <input id="branding_watermark_size" type="range" min="30" max="500" step="10" value="120" style="width:300px;accent-color:#00ff88" oninput="document.getElementById('branding_size_val').textContent=this.value">
+        </div>
+        <div style="margin-bottom:16px">
           <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:8px">Show Watermark On:</label>
           <div style="display:flex;gap:16px;flex-wrap:wrap">
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e0e0e0;font-size:13px"><input type="checkbox" id="wm_on_channels" checked> 📺 Live Channels</label>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e0e0e0;font-size:13px"><input type="checkbox" id="wm_on_movies" checked> 🎬 Movies</label>
             <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:#e0e0e0;font-size:13px"><input type="checkbox" id="wm_on_series" checked> 📀 Series</label>
           </div>
+        </div>
+        <div style="margin-bottom:16px;padding:12px;background:#1a1e2e;border-radius:8px;border:1px solid #2a2e3e">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;color:#e0e0e0;font-size:13px">
+            <input type="checkbox" id="wm_ffmpeg"> 🔥 FFmpeg Burn-in (Watermark in ALL players - VLC, Smarters, etc.)
+          </label>
+          <p style="color:#5a6a8a;font-size:11px;margin:6px 0 0 26px">⚠️ Requires FFmpeg on server + strong CPU. May cause buffering on weak VPS. If OFF, watermark shows in web player only.</p>
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn btn-success" data-action="saveSettings">Save Settings</button>
@@ -2318,9 +2328,15 @@ async function loadSettings() {
       document.getElementById('branding_watermark_opacity').value = opacity;
       document.getElementById('branding_opacity_val').textContent = opacity.toFixed(2);
     }
+    if (data.watermark_size !== undefined) {
+      const size = parseInt(data.watermark_size) || 120;
+      document.getElementById('branding_watermark_size').value = size;
+      document.getElementById('branding_size_val').textContent = size;
+    }
     document.getElementById('wm_on_channels').checked = data.wm_on_channels !== '0';
     document.getElementById('wm_on_movies').checked = data.wm_on_movies !== '0';
     document.getElementById('wm_on_series').checked = data.wm_on_series !== '0';
+    document.getElementById('wm_ffmpeg').checked = data.wm_ffmpeg === '1';
   } catch(e) { /* silently ignore if endpoint not yet available */ }
 }
 
@@ -2331,9 +2347,11 @@ async function saveSettings() {
     watermark_url: document.getElementById('branding_watermark_url').value,
     watermark_position: document.getElementById('branding_watermark_position').value,
     watermark_opacity: parseFloat(document.getElementById('branding_watermark_opacity').value),
+    watermark_size: parseInt(document.getElementById('branding_watermark_size').value) || 120,
     wm_on_channels: document.getElementById('wm_on_channels').checked ? '1' : '0',
     wm_on_movies: document.getElementById('wm_on_movies').checked ? '1' : '0',
-    wm_on_series: document.getElementById('wm_on_series').checked ? '1' : '0'
+    wm_on_series: document.getElementById('wm_on_series').checked ? '1' : '0',
+    wm_ffmpeg: document.getElementById('wm_ffmpeg').checked ? '1' : '0'
   };
   try {
     for (const [key, value] of Object.entries(body)) {

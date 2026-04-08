@@ -259,13 +259,17 @@ function proxyWithWatermark(url, req, res, watermarkOpts) {
 
   // FFmpeg command: input stream + watermark image overlay
   const ffArgs = [
+    '-reconnect', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '5',
     '-i', url,
     '-i', wmUrl,
     '-filter_complex', `[1:v]scale=${size}:-1,format=rgba,colorchannelmixer=aa=${opacity}[wm];[0:v][wm]overlay=${overlayPos}`,
     '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-    '-c:a', 'copy',
+    '-b:v', '2M', '-maxrate', '2.5M', '-bufsize', '5M',
+    '-threads', '2',
+    '-c:a', 'aac', '-b:a', '128k',
     '-f', 'mpegts',
-    '-movflags', 'frag_keyframe+empty_moov',
     '-'
   ];
 
@@ -400,22 +404,26 @@ app.get('/:username/:password/:streamId', (req, res, next) => {
 
   let streamUrl = channel.stream_url;
 
-  // Check watermark settings
-  const wmUrl = channel.watermark_url || '';
-  const globalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
-  const globalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_channels'");
-  const useWm = channel.watermark !== 0 && (globalWmOn ? globalWmOn.value !== '0' : true) && (wmUrl || (globalWm && globalWm.value));
-  if (useWm) {
-    const finalWmUrl = wmUrl || (globalWm ? globalWm.value : '');
-    if (finalWmUrl) {
-      const globalPos = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
-      const globalOpacity = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
-      return proxyWithWatermark(streamUrl, req, res, {
-        url: finalWmUrl,
-        position: channel.watermark_position || (globalPos ? globalPos.value : 'top-right'),
-        opacity: channel.watermark_opacity || (globalOpacity ? parseFloat(globalOpacity.value) : 0.8),
-        size: channel.watermark_size || 120
-      });
+  // Check watermark settings (FFmpeg burn-in only if wm_ffmpeg enabled)
+  const ffmpegEnabled = getOne("SELECT value FROM site_settings WHERE key='wm_ffmpeg'");
+  if (ffmpegEnabled && ffmpegEnabled.value === '1') {
+    const wmUrl = channel.watermark_url || '';
+    const globalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
+    const globalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_channels'");
+    const useWm = channel.watermark !== 0 && (globalWmOn ? globalWmOn.value !== '0' : true) && (wmUrl || (globalWm && globalWm.value));
+    if (useWm) {
+      const finalWmUrl = wmUrl || (globalWm ? globalWm.value : '');
+      if (finalWmUrl) {
+        const globalPos = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
+        const globalOpacity = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
+        const globalSize = getOne("SELECT value FROM site_settings WHERE key='watermark_size'");
+        return proxyWithWatermark(streamUrl, req, res, {
+          url: finalWmUrl,
+          position: channel.watermark_position || (globalPos ? globalPos.value : 'top-right'),
+          opacity: channel.watermark_opacity || (globalOpacity ? parseFloat(globalOpacity.value) : 0.8),
+          size: channel.watermark_size || (globalSize ? parseInt(globalSize.value) : 120)
+        });
+      }
     }
   }
 
@@ -524,20 +532,24 @@ app.get('/movie/:username/:password/:movieId', (req, res, next) => {
 
   const videoUrl = movie.video_url;
 
-  // Watermark check for movies
-  const mWmUrl = movie.watermark_url || '';
-  const mGlobalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
-  const mGlobalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_movies'");
-  const mUseWm = movie.watermark !== 0 && (mGlobalWmOn ? mGlobalWmOn.value !== '0' : true) && (mWmUrl || (mGlobalWm && mGlobalWm.value));
-  if (mUseWm) {
-    const finalWm = mWmUrl || (mGlobalWm ? mGlobalWm.value : '');
-    if (finalWm) {
-      const gp = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
-      const go = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
-      return proxyWithWatermark(videoUrl, req, res, {
-        url: finalWm, position: movie.watermark_position || (gp?gp.value:'top-right'),
-        opacity: movie.watermark_opacity || (go?parseFloat(go.value):0.8), size: movie.watermark_size || 120
-      });
+  // Watermark check for movies (FFmpeg only if enabled)
+  const mFfmpeg = getOne("SELECT value FROM site_settings WHERE key='wm_ffmpeg'");
+  if (mFfmpeg && mFfmpeg.value === '1') {
+    const mWmUrl = movie.watermark_url || '';
+    const mGlobalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
+    const mGlobalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_movies'");
+    const mUseWm = movie.watermark !== 0 && (mGlobalWmOn ? mGlobalWmOn.value !== '0' : true) && (mWmUrl || (mGlobalWm && mGlobalWm.value));
+    if (mUseWm) {
+      const finalWm = mWmUrl || (mGlobalWm ? mGlobalWm.value : '');
+      if (finalWm) {
+        const gp = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
+        const go = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
+        const gs = getOne("SELECT value FROM site_settings WHERE key='watermark_size'");
+        return proxyWithWatermark(videoUrl, req, res, {
+          url: finalWm, position: movie.watermark_position || (gp?gp.value:'top-right'),
+          opacity: movie.watermark_opacity || (go?parseFloat(go.value):0.8), size: movie.watermark_size || (gs?parseInt(gs.value):120)
+        });
+      }
     }
   }
 
@@ -575,21 +587,25 @@ app.get('/series/:username/:password/:episodeId', (req, res, next) => {
 
   const videoUrl = episode.video_url;
 
-  // Watermark check for series
-  const ser = getOne('SELECT * FROM series WHERE id = ?', [episode.series_id]);
-  const sWmUrl = ser?.watermark_url || '';
-  const sGlobalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
-  const sGlobalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_series'");
-  const sUseWm = (ser?.watermark !== 0) && (sGlobalWmOn ? sGlobalWmOn.value !== '0' : true) && (sWmUrl || (sGlobalWm && sGlobalWm.value));
-  if (sUseWm) {
-    const finalWm = sWmUrl || (sGlobalWm ? sGlobalWm.value : '');
-    if (finalWm) {
-      const gp = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
-      const go = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
-      return proxyWithWatermark(videoUrl, req, res, {
-        url: finalWm, position: ser?.watermark_position || (gp?gp.value:'top-right'),
-        opacity: ser?.watermark_opacity || (go?parseFloat(go.value):0.8), size: ser?.watermark_size || 120
-      });
+  // Watermark check for series (FFmpeg only if enabled)
+  const sFfmpeg = getOne("SELECT value FROM site_settings WHERE key='wm_ffmpeg'");
+  if (sFfmpeg && sFfmpeg.value === '1') {
+    const ser = getOne('SELECT * FROM series WHERE id = ?', [episode.series_id]);
+    const sWmUrl = ser?.watermark_url || '';
+    const sGlobalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
+    const sGlobalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_series'");
+    const sUseWm = (ser?.watermark !== 0) && (sGlobalWmOn ? sGlobalWmOn.value !== '0' : true) && (sWmUrl || (sGlobalWm && sGlobalWm.value));
+    if (sUseWm) {
+      const finalWm = sWmUrl || (sGlobalWm ? sGlobalWm.value : '');
+      if (finalWm) {
+        const gp = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
+        const go = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
+        const gs2 = getOne("SELECT value FROM site_settings WHERE key='watermark_size'");
+        return proxyWithWatermark(videoUrl, req, res, {
+          url: finalWm, position: ser?.watermark_position || (gp?gp.value:'top-right'),
+          opacity: ser?.watermark_opacity || (go?parseFloat(go.value):0.8), size: ser?.watermark_size || (gs2?parseInt(gs2.value):120)
+        });
+      }
     }
   }
 
@@ -822,11 +838,17 @@ app.get('/player_api.php', (req, res) => {
   // Get live channels
   if (action === 'get_live_categories') {
     const cats = getAll("SELECT DISTINCT category FROM channels WHERE is_active = 1 AND name != '__category_placeholder__'");
-    return res.json(cats.map((c, i) => ({
+    const result = cats.map((c, i) => ({
       category_id: String(i + 1),
       category_name: c.category,
       parent_id: 0
-    })));
+    }));
+    // Add 24/7 category if custom channels exist
+    const has24 = getOne('SELECT COUNT(*) as cnt FROM custom_channels WHERE is_active = 1');
+    if (has24 && has24.cnt > 0) {
+      result.push({ category_id: '9999', category_name: '24/7 Channels', parent_id: 0 });
+    }
+    return res.json(result);
   }
 
   if (action === 'get_live_streams') {
@@ -858,7 +880,32 @@ app.get('/player_api.php', (req, res) => {
         watermark_opacity: c.watermark_opacity,
         watermark_size: c.watermark_size
       };
-    }));
+    });
+    // Add custom 24/7 channels to live streams
+    const custom24 = getAll('SELECT * FROM custom_channels WHERE is_active = 1');
+    custom24.forEach(cc => {
+      const urls = JSON.parse(cc.video_urls || '[]');
+      if (urls.length > 0) {
+        result.push({
+          num: 90000 + cc.id,
+          name: cc.name,
+          stream_type: 'live',
+          stream_id: 90000 + cc.id,
+          stream_icon: cc.logo_url || '',
+          epg_channel_id: null,
+          added: '0',
+          is_adult: '0',
+          category_id: '9999',
+          category_ids: [9999],
+          custom_sid: 'custom_' + cc.id,
+          tv_archive: 0,
+          direct_source: '',
+          tv_archive_duration: 0,
+          container_extension: 'ts'
+        });
+      }
+    });
+    return res.json(result);
   }
 
   // Get VOD (movies)
