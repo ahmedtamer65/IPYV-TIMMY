@@ -1275,6 +1275,55 @@ function fetchJson(url) {
   });
 }
 
+// ===== DATABASE BACKUP & RESTORE =====
+// Download database file
+app.get('/api/admin/backup/download', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const dbPath = path.join(BASE_DIR, 'iptv.db');
+  if (!fs.existsSync(dbPath)) return res.status(404).json({ error: 'Database file not found' });
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', 'attachment; filename=iptv_backup_' + new Date().toISOString().split('T')[0] + '.db');
+  res.sendFile(dbPath);
+});
+
+// Upload/restore database file
+app.post('/api/admin/backup/restore', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const contentType = req.headers['content-type'] || '';
+  if (!contentType.includes('octet-stream') && !contentType.includes('sqlite')) {
+    return res.status(400).json({ error: 'Send database file as binary (application/octet-stream)' });
+  }
+
+  const chunks = [];
+  req.on('data', chunk => chunks.push(chunk));
+  req.on('end', () => {
+    const buf = Buffer.concat(chunks);
+    if (buf.length < 100) return res.status(400).json({ error: 'File too small to be a valid database' });
+
+    // Verify it's a valid SQLite file (starts with "SQLite format 3")
+    const header = buf.slice(0, 16).toString('ascii');
+    if (!header.startsWith('SQLite format 3')) {
+      return res.status(400).json({ error: 'Not a valid SQLite database file' });
+    }
+
+    const dbPath = path.join(BASE_DIR, 'iptv.db');
+    // Backup current DB first
+    try {
+      if (fs.existsSync(dbPath)) {
+        fs.copyFileSync(dbPath, dbPath + '.before_restore');
+      }
+    } catch(e) {}
+
+    // Write uploaded DB
+    try {
+      fs.writeFileSync(dbPath, buf);
+      res.json({ message: 'Database restored! Restart the server to load the new data.', size: buf.length });
+    } catch(e) {
+      res.status(500).json({ error: 'Failed to write database: ' + e.message });
+    }
+  });
+});
+
 // ===== EXPORT USERS CSV (server-side) =====
 app.get('/api/admin/users/export/csv', (req, res) => {
   const token = req.headers.authorization?.split(' ')[1];
