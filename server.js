@@ -62,7 +62,27 @@ function trackConnection(userId, req, streamType, streamId) {
 function checkConnectionLimit(userId, maxConnections) {
   const current = activeConnections.get(userId);
   const count = current ? current.size : 0;
-  return count < (maxConnections || 1);
+  if (count >= (maxConnections || 1)) {
+    // Send Telegram alert for multi-screen violation
+    try {
+      const tgToken = getOne("SELECT value FROM site_settings WHERE key='telegram_bot_token'");
+      const tgChat = getOne("SELECT value FROM site_settings WHERE key='telegram_chat_id'");
+      const user = getOne('SELECT username FROM users WHERE id = ?', [userId]);
+      if (tgToken?.value && tgChat?.value && user) {
+        const conns = [...current].map(c => `  - IP: ${c.ip} | ${c.streamType} #${c.streamId}`).join('\n');
+        sendTelegram(tgToken.value, tgChat.value,
+          `⚠️ <b>Multi-Screen Violation</b>\n\n` +
+          `👤 User: <b>${user.username}</b>\n` +
+          `📱 Max allowed: ${maxConnections || 1}\n` +
+          `🔴 Active connections: ${count + 1}\n\n` +
+          `Active streams:\n${conns}\n\n` +
+          `🕐 ${new Date().toLocaleString()}`
+        );
+      }
+    } catch(e) { /* don't break streaming for notification failure */ }
+    return false;
+  }
+  return true;
 }
 
 function getActiveConnectionCount(userId) {
@@ -241,6 +261,49 @@ app.put('/api/admin/suspicious/:id/resolve', (req, res) => {
 
 // ===== WATERMARK PROXY (FFmpeg overlay) =====
 // Pipes stream through FFmpeg to burn watermark into video for ALL players
+// ===== MULTI-BITRATE QUALITY PROFILES =====
+const QUALITY_PROFILES = {
+  '1080p': { height: 1080, videoBitrate: '4M', maxRate: '4.5M', bufSize: '8M', audioBitrate: '192k' },
+  '720p':  { height: 720,  videoBitrate: '2.5M', maxRate: '3M', bufSize: '6M', audioBitrate: '128k' },
+  '480p':  { height: 480,  videoBitrate: '1M', maxRate: '1.5M', bufSize: '3M', audioBitrate: '96k' },
+  '360p':  { height: 360,  videoBitrate: '600k', maxRate: '800k', bufSize: '1.5M', audioBitrate: '64k' },
+  'original': null // no transcoding, just copy
+};
+
+function proxyWithQuality(url, req, res, quality) {
+  const { spawn } = require('child_process');
+  const profile = QUALITY_PROFILES[quality];
+  if (!profile) {
+    // original quality — just proxy
+    return proxyUrl(url, req, res, 'video/mp2t');
+  }
+
+  const ffArgs = [
+    '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
+    '-i', url,
+    '-vf', `scale=-2:${profile.height}`,
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+    '-b:v', profile.videoBitrate, '-maxrate', profile.maxRate, '-bufsize', profile.bufSize,
+    '-threads', '2',
+    '-c:a', 'aac', '-b:a', profile.audioBitrate,
+    '-f', 'mpegts', '-'
+  ];
+
+  try {
+    const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+    res.setHeader('Content-Type', 'video/mp2t');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'no-cache');
+    ffmpeg.stdout.pipe(res);
+    ffmpeg.stderr.on('data', () => {});
+    ffmpeg.on('error', () => proxyUrl(url, req, res, 'video/mp2t'));
+    ffmpeg.on('close', () => { if (!res.writableEnded) res.end(); });
+    req.on('close', () => { ffmpeg.kill('SIGKILL'); });
+  } catch(e) {
+    proxyUrl(url, req, res, 'video/mp2t');
+  }
+}
+
 function proxyWithWatermark(url, req, res, watermarkOpts) {
   const { spawn } = require('child_process');
   const wm = watermarkOpts || {};
@@ -439,6 +502,12 @@ app.get('/:username/:password/:streamId', (req, res, next) => {
         });
       }
     }
+  }
+
+  // Multi-Bitrate: if quality parameter is set, transcode
+  const quality = req.query.q || req.query.quality;
+  if (quality && QUALITY_PROFILES[quality] && QUALITY_PROFILES[quality] !== null) {
+    return proxyWithQuality(streamUrl, req, res, quality);
   }
 
   // Local file
@@ -931,9 +1000,9 @@ app.get('/player_api.php', (req, res) => {
           category_ids: [ccCatIdx || 1],
           custom_sid: 'custom_' + cc.id,
           tv_archive: 0,
-          direct_source: baseUrl + '/live/custom/' + cc.id + '.' + (cc.stream_format || 'm3u8'),
+          direct_source: baseUrl + '/live/custom/' + cc.id + '.ts',
           tv_archive_duration: 0,
-          container_extension: cc.stream_format || 'm3u8'
+          container_extension: 'ts'
         });
       }
     });
@@ -1171,10 +1240,9 @@ app.get('/get.php', (req, res) => {
   const customChs = getAll('SELECT * FROM custom_channels WHERE is_active = 1 AND show_in_live = 1');
   customChs.forEach(cc => {
     const urls = JSON.parse(cc.video_urls || '[]');
-    const fmt = cc.stream_format || 'm3u8';
     if (urls.length > 0) {
       m3u += `#EXTINF:-1 tvg-name="${cc.name}" tvg-logo="${cc.logo_url || ''}" group-title="${cc.category || '24/7 Channels'}",${cc.name}\n`;
-      m3u += `${baseUrl}/live/custom/${cc.id}.${fmt}?username=${username}&password=${password}\n`;
+      m3u += `${baseUrl}/live/custom/${cc.id}.ts?username=${username}&password=${password}\n`;
     }
   });
 
@@ -1203,11 +1271,12 @@ app.get('/live/movies.m3u8', (req, res) => {
   res.redirect(currentMovie.video_url);
 });
 
-// Custom 24/7 channel — plays video URLs in rotation (serves playlist so videos play one after another)
+// Custom 24/7 channel — continuous live stream using FFmpeg concat
+// Videos play one after another seamlessly like a real TV channel
 app.get('/live/custom/:channelId', (req, res) => {
+  const { spawn } = require('child_process');
   const { channelId } = req.params;
   const cleanId = channelId.replace(/\.(m3u8|m3u|mp4|ts)$/, '');
-  const ext = (channelId.match(/\.(m3u8|m3u|mp4|ts)$/) || [])[1] || 'm3u8';
 
   // Auth via query params
   const { username, password: pass } = req.query;
@@ -1222,39 +1291,40 @@ app.get('/live/custom/:channelId', (req, res) => {
   const urls = JSON.parse(channel.video_urls || '[]').filter(u => u && u.trim());
   if (urls.length === 0) return res.status(404).send('No videos in this channel');
 
-  // Smart rotation: use durations if available, otherwise 2hr per video
+  // Calculate which video should be playing now based on time
   let durations;
   try { durations = JSON.parse(channel.durations || '[]'); } catch(e) { durations = []; }
-
-  let currentIndex;
-  if (req.query.index !== undefined) {
-    currentIndex = parseInt(req.query.index) % urls.length;
-  } else {
-    const getDuration = (i) => (durations[i] || 7200);
-    const totalCycle = urls.reduce((sum, _, i) => sum + getDuration(i), 0);
-    const now = Math.floor(Date.now() / 1000);
-    const posInCycle = now % totalCycle;
-    let elapsed = 0;
-    currentIndex = 0;
-    for (let i = 0; i < urls.length; i++) {
-      elapsed += getDuration(i);
-      if (posInCycle < elapsed) {
-        currentIndex = i;
-        break;
-      }
-    }
+  const getDuration = (i) => (durations[i] || 7200);
+  const totalCycle = urls.reduce((sum, _, i) => sum + getDuration(i), 0);
+  const now = Math.floor(Date.now() / 1000);
+  const posInCycle = now % totalCycle;
+  let elapsed = 0;
+  let startIndex = 0;
+  for (let i = 0; i < urls.length; i++) {
+    elapsed += getDuration(i);
+    if (posInCycle < elapsed) { startIndex = i; break; }
   }
-  const currentUrl = urls[currentIndex];
 
-  // Return info headers
-  res.setHeader('X-Total-Videos', String(urls.length));
-  res.setHeader('X-Current-Index', String(currentIndex));
-  res.setHeader('X-Next-Index', String((currentIndex + 1) % urls.length));
-  res.setHeader('Access-Control-Expose-Headers', 'X-Total-Videos,X-Current-Index,X-Next-Index');
+  // Set headers for live MPEG-TS stream
+  res.setHeader('Content-Type', 'video/mp2t');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'no-cache, no-store');
+  res.setHeader('Connection', 'keep-alive');
 
-  // Check FFmpeg watermark for custom 24/7 channels
+  let currentIdx = startIndex;
+  let isAlive = true;
+  let currentProcess = null;
+
+  req.on('close', () => {
+    isAlive = false;
+    if (currentProcess) { try { currentProcess.kill('SIGKILL'); } catch(e) {} }
+  });
+
+  // Check watermark settings
   const ccFfmpeg = getOne("SELECT value FROM site_settings WHERE key='wm_ffmpeg'");
-  if (ccFfmpeg && ccFfmpeg.value === '1') {
+  const wmEnabled = ccFfmpeg && ccFfmpeg.value === '1';
+  let wmArgs = [];
+  if (wmEnabled) {
     const wmUrl = channel.watermark_url || '';
     const globalWm = getOne("SELECT value FROM site_settings WHERE key='watermark_url'");
     const globalWmOn = getOne("SELECT value FROM site_settings WHERE key='wm_on_channels'");
@@ -1265,34 +1335,75 @@ app.get('/live/custom/:channelId', (req, res) => {
         const gp = getOne("SELECT value FROM site_settings WHERE key='watermark_position'");
         const go = getOne("SELECT value FROM site_settings WHERE key='watermark_opacity'");
         const gs = getOne("SELECT value FROM site_settings WHERE key='watermark_size'");
-        return proxyWithWatermark(currentUrl, req, res, {
-          url: finalWmUrl,
-          position: (gp ? gp.value : 'top-right'),
-          opacity: (go ? parseFloat(go.value) : 0.8),
-          size: (gs ? parseInt(gs.value) : 120)
-        });
+        const position = gp ? gp.value : 'top-right';
+        const opacity = go ? parseFloat(go.value) : 0.8;
+        const size = gs ? parseInt(gs.value) : 120;
+        const margin = 10;
+        let overlayPos = 'W-w-10:10';
+        if (position === 'top-left') overlayPos = `${margin}:${margin}`;
+        else if (position === 'top-left-corner') overlayPos = '0:0';
+        else if (position === 'top-right') overlayPos = `W-w-${margin}:${margin}`;
+        else if (position === 'top-right-corner') overlayPos = 'W-w:0';
+        else if (position === 'bottom-left') overlayPos = `${margin}:H-h-${margin}`;
+        else if (position === 'bottom-left-corner') overlayPos = '0:H-h';
+        else if (position === 'bottom-right') overlayPos = `W-w-${margin}:H-h-${margin}`;
+        else if (position === 'bottom-right-corner') overlayPos = 'W-w:H-h';
+        else if (position === 'center') overlayPos = '(W-w)/2:(H-h)/2';
+        else if (position === 'top-center') overlayPos = `(W-w)/2:${margin}`;
+        else if (position === 'bottom-center') overlayPos = `(W-w)/2:H-h-${margin}`;
+        wmArgs = ['-i', finalWmUrl, '-filter_complex', `[1:v]scale=${size}:-1,format=rgba,colorchannelmixer=aa=${opacity}[wm];[0:v][wm]overlay=${overlayPos}`, '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency', '-b:v', '2M', '-c:a', 'aac', '-b:a', '128k'];
       }
     }
   }
 
-  // For m3u/m3u8: serve a playlist with ALL videos starting from current index
-  // This makes players auto-advance through all movies in the channel
-  if (ext === 'm3u8' || ext === 'm3u') {
-    let playlist = '#EXTM3U\n';
-    // Start from current video, then loop through all remaining
-    for (let i = 0; i < urls.length; i++) {
-      const idx = (currentIndex + i) % urls.length;
-      const dur = durations[idx] || 7200;
-      playlist += `#EXTINF:${dur},${channel.name} - Part ${idx + 1}\n`;
-      playlist += urls[idx] + '\n';
+  function playVideo() {
+    if (!isAlive) return;
+    const videoUrl = urls[currentIdx];
+    console.log(`[24/7 ${channel.name}] Playing video ${currentIdx + 1}/${urls.length}: ${videoUrl.substring(0, 80)}...`);
+
+    const ffArgs = [
+      '-reconnect', '1', '-reconnect_streamed', '1', '-reconnect_delay_max', '5',
+      '-i', videoUrl,
+      ...wmArgs,
+      ...(wmArgs.length === 0 ? ['-c', 'copy'] : []),
+      '-f', 'mpegts', '-'
+    ];
+
+    try {
+      const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+      currentProcess = ffmpeg;
+
+      ffmpeg.stdout.on('data', (chunk) => {
+        if (isAlive && !res.writableEnded) {
+          try { res.write(chunk); } catch(e) { isAlive = false; ffmpeg.kill('SIGKILL'); }
+        }
+      });
+
+      ffmpeg.stderr.on('data', () => {}); // suppress FFmpeg logs
+
+      ffmpeg.on('close', (code) => {
+        currentProcess = null;
+        if (!isAlive || res.writableEnded) return;
+        // Move to next video and continue playing
+        currentIdx = (currentIdx + 1) % urls.length;
+        playVideo();
+      });
+
+      ffmpeg.on('error', (err) => {
+        console.log(`[24/7 ${channel.name}] FFmpeg error, trying next video`);
+        currentProcess = null;
+        if (!isAlive || res.writableEnded) return;
+        currentIdx = (currentIdx + 1) % urls.length;
+        setTimeout(playVideo, 1000);
+      });
+    } catch(e) {
+      // FFmpeg not available - fallback to redirect
+      console.log('[24/7] FFmpeg not available, falling back to redirect');
+      res.redirect(videoUrl);
     }
-    res.setHeader('Content-Type', 'audio/mpegurl');
-    res.setHeader('Content-Disposition', `inline; filename="${channel.name}.m3u"`);
-    return res.send(playlist);
   }
 
-  // For ts/mp4 or direct: redirect to current video
-  res.redirect(currentUrl);
+  playVideo();
 });
 
 // ===== CUSTOM 24/7 CHANNELS API =====
@@ -1394,6 +1505,31 @@ app.get('/xmltv.php', (req, res) => {
   xml += '</tv>';
   res.setHeader('Content-Type', 'application/xml');
   res.send(xml);
+});
+
+// ===== MULTI-BITRATE API =====
+app.get('/api/admin/quality-profiles', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json(Object.entries(QUALITY_PROFILES).map(([name, profile]) => ({
+    name,
+    height: profile ? profile.height : 'original',
+    videoBitrate: profile ? profile.videoBitrate : 'copy',
+    audioBitrate: profile ? profile.audioBitrate : 'copy'
+  })));
+});
+
+// ===== RATINGS ADMIN API =====
+app.get('/api/admin/ratings', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const ratings = getAll(`SELECT r.*, u.username FROM ratings r LEFT JOIN users u ON r.user_id = u.id ORDER BY r.created_at DESC LIMIT 100`);
+  const avgByItem = getAll(`SELECT item_type, item_id, AVG(rating) as avg_rating, COUNT(*) as count FROM ratings GROUP BY item_type, item_id ORDER BY count DESC LIMIT 50`);
+  res.json({ ratings, averages: avgByItem });
+});
+
+app.delete('/api/admin/ratings/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  run('DELETE FROM ratings WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Rating deleted' });
 });
 
 // ===== STATISTICS =====
