@@ -1249,9 +1249,8 @@ app.get('/live/custom/:channelId', (req, res) => {
     }
   }
 
-  // Proxy the video - detect content type from URL
-  const contentType = currentUrl.includes('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp4';
-  proxyUrl(currentUrl, req, res, contentType);
+  // Redirect to the actual video URL - works with all players
+  res.redirect(currentUrl);
 });
 
 // ===== CUSTOM 24/7 CHANNELS API =====
