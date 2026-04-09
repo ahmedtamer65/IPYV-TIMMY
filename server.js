@@ -409,6 +409,13 @@ app.get('/:username/:password/:streamId', (req, res, next) => {
   auditLog(user.id, user.username, 'stream_start', `Live channel ${cleanId}: ${channel.name}`, req);
   detectAccountSharing(user.id, user.username, req);
 
+  // Track view stats (async, non-blocking)
+  try {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    run('INSERT INTO view_stats (user_id, channel_id, channel_name, stream_type, ip_address) VALUES (?, ?, ?, ?, ?)',
+      [user.id, parseInt(cleanId), channel.name, 'live', ip]);
+  } catch(e) { /* don't break streaming for stats */ }
+
   let streamUrl = channel.stream_url;
 
   // Check watermark settings (FFmpeg burn-in only if wm_ffmpeg enabled)
@@ -536,6 +543,13 @@ app.get('/movie/:username/:password/:movieId', (req, res, next) => {
   trackConnection(user.id, req, 'vod', cleanId);
   auditLog(user.id, user.username, 'stream_start', `Movie ${cleanId}: ${movie.title}`, req);
   detectAccountSharing(user.id, user.username, req);
+
+  // Track view stats (async, non-blocking)
+  try {
+    const ip = req.ip || req.connection?.remoteAddress || 'unknown';
+    run('INSERT INTO view_stats (user_id, channel_id, channel_name, stream_type, ip_address) VALUES (?, ?, ?, ?, ?)',
+      [user.id, parseInt(cleanId), movie.title, 'movie', ip]);
+  } catch(e) { /* don't break streaming for stats */ }
 
   const videoUrl = movie.video_url;
 
@@ -917,9 +931,9 @@ app.get('/player_api.php', (req, res) => {
           category_ids: [ccCatIdx || 1],
           custom_sid: 'custom_' + cc.id,
           tv_archive: 0,
-          direct_source: '',
+          direct_source: baseUrl + '/live/custom/' + cc.id + '.' + (cc.stream_format || 'm3u8'),
           tv_archive_duration: 0,
-          container_extension: 'm3u8'
+          container_extension: cc.stream_format || 'm3u8'
         });
       }
     });
@@ -1189,10 +1203,11 @@ app.get('/live/movies.m3u8', (req, res) => {
   res.redirect(currentMovie.video_url);
 });
 
-// Custom 24/7 channel — plays video URLs in rotation
+// Custom 24/7 channel — plays video URLs in rotation (serves playlist so videos play one after another)
 app.get('/live/custom/:channelId', (req, res) => {
   const { channelId } = req.params;
   const cleanId = channelId.replace(/\.(m3u8|m3u|mp4|ts)$/, '');
+  const ext = (channelId.match(/\.(m3u8|m3u|mp4|ts)$/) || [])[1] || 'm3u8';
 
   // Auth via query params
   const { username, password: pass } = req.query;
@@ -1215,13 +1230,10 @@ app.get('/live/custom/:channelId', (req, res) => {
   if (req.query.index !== undefined) {
     currentIndex = parseInt(req.query.index) % urls.length;
   } else {
-    // Calculate total cycle duration
-    const getDuration = (i) => (durations[i] || 7200); // default 2hr in seconds
+    const getDuration = (i) => (durations[i] || 7200);
     const totalCycle = urls.reduce((sum, _, i) => sum + getDuration(i), 0);
     const now = Math.floor(Date.now() / 1000);
     const posInCycle = now % totalCycle;
-
-    // Find which video should be playing now
     let elapsed = 0;
     currentIndex = 0;
     for (let i = 0; i < urls.length; i++) {
@@ -1234,7 +1246,7 @@ app.get('/live/custom/:channelId', (req, res) => {
   }
   const currentUrl = urls[currentIndex];
 
-  // Return info header so player knows total videos and next index
+  // Return info headers
   res.setHeader('X-Total-Videos', String(urls.length));
   res.setHeader('X-Current-Index', String(currentIndex));
   res.setHeader('X-Next-Index', String((currentIndex + 1) % urls.length));
@@ -1263,7 +1275,23 @@ app.get('/live/custom/:channelId', (req, res) => {
     }
   }
 
-  // Redirect to the actual video URL - works with all players
+  // For m3u/m3u8: serve a playlist with ALL videos starting from current index
+  // This makes players auto-advance through all movies in the channel
+  if (ext === 'm3u8' || ext === 'm3u') {
+    let playlist = '#EXTM3U\n';
+    // Start from current video, then loop through all remaining
+    for (let i = 0; i < urls.length; i++) {
+      const idx = (currentIndex + i) % urls.length;
+      const dur = durations[idx] || 7200;
+      playlist += `#EXTINF:${dur},${channel.name} - Part ${idx + 1}\n`;
+      playlist += urls[idx] + '\n';
+    }
+    res.setHeader('Content-Type', 'audio/mpegurl');
+    res.setHeader('Content-Disposition', `inline; filename="${channel.name}.m3u"`);
+    return res.send(playlist);
+  }
+
+  // For ts/mp4 or direct: redirect to current video
   res.redirect(currentUrl);
 });
 
@@ -1304,6 +1332,259 @@ app.delete('/api/admin/custom-channels/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
   run('DELETE FROM custom_channels WHERE id = ?', [req.params.id]);
   res.json({ message: 'Custom channel deleted' });
+});
+
+// ===== EPG (Electronic Program Guide) =====
+app.get('/api/admin/epg', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const epg = getAll('SELECT e.*, c.name as channel_name FROM epg_data e LEFT JOIN channels c ON e.channel_id = c.id ORDER BY e.start_time DESC LIMIT 500');
+  res.json(epg);
+});
+app.post('/api/admin/epg', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { channel_id, title, description, start_time, end_time } = req.body;
+  if (!channel_id || !title || !start_time || !end_time) return res.status(400).json({ error: 'Missing fields' });
+  run('INSERT INTO epg_data (channel_id, title, description, start_time, end_time) VALUES (?, ?, ?, ?, ?)', [channel_id, title, description || '', start_time, end_time]);
+  res.json({ message: 'EPG entry added' });
+});
+app.delete('/api/admin/epg/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  run('DELETE FROM epg_data WHERE id = ?', [req.params.id]);
+  res.json({ message: 'EPG entry deleted' });
+});
+app.post('/api/admin/epg/import', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL required' });
+  const fetcher = url.startsWith('https') ? https : http;
+  fetcher.get(url, (response) => {
+    let data = '';
+    response.on('data', chunk => data += chunk);
+    response.on('end', () => {
+      try {
+        let count = 0;
+        const programRegex = /<programme start="([^"]+)" stop="([^"]+)" channel="([^"]+)"[^>]*>[\s\S]*?<title[^>]*>([^<]+)<\/title>[\s\S]*?(?:<desc[^>]*>([^<]*)<\/desc>)?[\s\S]*?<\/programme>/g;
+        let match;
+        while ((match = programRegex.exec(data)) !== null) {
+          const startStr = match[1].replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}).*/, '$1-$2-$3 $4:$5:$6');
+          const endStr = match[2].replace(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2}).*/, '$1-$2-$3 $4:$5:$6');
+          const epgChannelId = match[3];
+          const channel = getOne('SELECT id FROM channels WHERE epg_id = ? OR name LIKE ?', [epgChannelId, '%' + epgChannelId + '%']);
+          if (channel) {
+            run('INSERT INTO epg_data (channel_id, title, description, start_time, end_time) VALUES (?, ?, ?, ?, ?)', [channel.id, match[4], match[5] || '', startStr, endStr]);
+            count++;
+          }
+        }
+        res.json({ message: `Imported ${count} EPG entries` });
+      } catch(e) { res.status(500).json({ error: 'Parse error: ' + e.message }); }
+    });
+  }).on('error', e => res.status(500).json({ error: e.message }));
+});
+// XMLTV output for players
+app.get('/xmltv.php', (req, res) => {
+  const channels = getAll('SELECT * FROM channels WHERE is_active = 1');
+  const epg = getAll('SELECT e.*, c.name as channel_name FROM epg_data e JOIN channels c ON e.channel_id = c.id ORDER BY e.start_time');
+  let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<tv generator-info-name="IPTV System">\n';
+  channels.forEach(c => { xml += `  <channel id="${c.epg_id || c.id}"><display-name>${c.name}</display-name>${c.logo_url ? '<icon src="'+c.logo_url+'"/>' : ''}</channel>\n`; });
+  epg.forEach(e => {
+    const start = e.start_time.replace(/[-: ]/g, '').substring(0, 14) + ' +0000';
+    const stop = e.end_time.replace(/[-: ]/g, '').substring(0, 14) + ' +0000';
+    xml += `  <programme start="${start}" stop="${stop}" channel="${e.channel_id}"><title>${e.title}</title><desc>${e.description || ''}</desc></programme>\n`;
+  });
+  xml += '</tv>';
+  res.setHeader('Content-Type', 'application/xml');
+  res.send(xml);
+});
+
+// ===== STATISTICS =====
+app.get('/api/admin/stats/overview', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const today = getOne("SELECT COUNT(*) as cnt FROM view_stats WHERE started_at >= datetime('now','-1 day')");
+  const week = getOne("SELECT COUNT(*) as cnt FROM view_stats WHERE started_at >= datetime('now','-7 days')");
+  const month = getOne("SELECT COUNT(*) as cnt FROM view_stats WHERE started_at >= datetime('now','-30 days')");
+  const topChannels = getAll("SELECT channel_name, COUNT(*) as views FROM view_stats WHERE stream_type='live' GROUP BY channel_name ORDER BY views DESC LIMIT 10");
+  const topMovies = getAll("SELECT channel_name, COUNT(*) as views FROM view_stats WHERE stream_type='movie' GROUP BY channel_name ORDER BY views DESC LIMIT 10");
+  const peakHours = getAll("SELECT CAST(strftime('%H', started_at) AS INTEGER) as hour, COUNT(*) as views FROM view_stats GROUP BY hour ORDER BY hour");
+  const recent = getAll("SELECT v.*, u.username FROM view_stats v LEFT JOIN users u ON v.user_id = u.id ORDER BY v.started_at DESC LIMIT 50");
+  const activeNow = activeConnections.size;
+  res.json({ today: today?.cnt || 0, week: week?.cnt || 0, month: month?.cnt || 0, topChannels, topMovies, peakHours, recent, activeNow });
+});
+
+// ===== CATCH-UP TV =====
+app.get('/api/admin/catchup', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const recordings = getAll('SELECT r.*, c.name as channel_name FROM catchup_recordings r LEFT JOIN channels c ON r.channel_id = c.id ORDER BY r.start_time DESC');
+  res.json(recordings);
+});
+app.post('/api/admin/catchup', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { channel_id, title, start_time, end_time, video_url } = req.body;
+  run('INSERT INTO catchup_recordings (channel_id, title, start_time, end_time, video_url) VALUES (?, ?, ?, ?, ?)', [channel_id, title, start_time, end_time, video_url]);
+  res.json({ message: 'Recording added' });
+});
+app.delete('/api/admin/catchup/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  run('DELETE FROM catchup_recordings WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Recording deleted' });
+});
+app.post('/api/admin/catchup/toggle/:channelId', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const ch = getOne('SELECT catchup_enabled FROM channels WHERE id = ?', [req.params.channelId]);
+  run('UPDATE channels SET catchup_enabled = ? WHERE id = ?', [ch?.catchup_enabled ? 0 : 1, req.params.channelId]);
+  res.json({ enabled: !ch?.catchup_enabled });
+});
+app.get('/api/catchup/:channelId', (req, res) => {
+  const recordings = getAll("SELECT * FROM catchup_recordings WHERE channel_id = ? AND start_time >= datetime('now','-48 hours') ORDER BY start_time DESC", [req.params.channelId]);
+  res.json(recordings);
+});
+
+// ===== TELEGRAM BOT & BACKUP =====
+function sendTelegram(token, chatId, text) {
+  if (!token || !chatId) return;
+  const data = JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML' });
+  const opts = { hostname: 'api.telegram.org', path: `/bot${token}/sendMessage`, method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } };
+  const r = https.request(opts, () => {});
+  r.on('error', () => {});
+  r.write(data);
+  r.end();
+}
+function sendTelegramFile(token, chatId, filePath, caption) {
+  if (!token || !chatId) return;
+  const boundary = '----FormBoundary' + Date.now();
+  const fileData = fs.readFileSync(filePath);
+  const fileName = path.basename(filePath);
+  let body = Buffer.concat([
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${chatId}\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption || ''}\r\n`),
+    Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="document"; filename="${fileName}"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+    fileData,
+    Buffer.from(`\r\n--${boundary}--\r\n`)
+  ]);
+  const opts = { hostname: 'api.telegram.org', path: `/bot${token}/sendDocument`, method: 'POST', headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length } };
+  const r = https.request(opts, () => {});
+  r.on('error', () => {});
+  r.write(body);
+  r.end();
+}
+app.post('/api/admin/backup/telegram', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const token = getOne("SELECT value FROM site_settings WHERE key='telegram_bot_token'");
+  const chatId = getOne("SELECT value FROM site_settings WHERE key='telegram_chat_id'");
+  if (!token?.value || !chatId?.value) return res.status(400).json({ error: 'Set Telegram bot token and chat ID first' });
+  try {
+    const dbPath = path.join(BASE_DIR, 'iptv.db');
+    sendTelegramFile(token.value, chatId.value, dbPath, 'IPTV Backup - ' + new Date().toISOString().split('T')[0]);
+    run("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('last_backup_time', ?)", [new Date().toISOString()]);
+    res.json({ message: 'Backup sent to Telegram' });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin/telegram/test', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const token = getOne("SELECT value FROM site_settings WHERE key='telegram_bot_token'");
+  const chatId = getOne("SELECT value FROM site_settings WHERE key='telegram_chat_id'");
+  if (!token?.value || !chatId?.value) return res.status(400).json({ error: 'Set token and chat ID first' });
+  sendTelegram(token.value, chatId.value, '✅ IPTV System connected successfully!\n\nServer: ' + require('os').hostname());
+  res.json({ message: 'Test notification sent' });
+});
+// Telegram webhook
+app.post('/api/telegram/webhook', (req, res) => {
+  const msg = req.body?.message;
+  if (!msg?.text) return res.json({ ok: true });
+  const adminChat = getOne("SELECT value FROM site_settings WHERE key='telegram_chat_id'");
+  if (String(msg.chat.id) !== adminChat?.value) return res.json({ ok: true });
+  const token = getOne("SELECT value FROM site_settings WHERE key='telegram_bot_token'");
+  if (!token?.value) return res.json({ ok: true });
+  const cmd = msg.text.trim();
+  if (cmd === '/status') {
+    const ch = getOne('SELECT COUNT(*) as c FROM channels WHERE is_active=1');
+    const mv = getOne('SELECT COUNT(*) as c FROM movies WHERE is_active=1');
+    const us = getOne('SELECT COUNT(*) as c FROM users');
+    sendTelegram(token.value, msg.chat.id, `📊 Server Status\n\n📺 Channels: ${ch?.c||0}\n🎬 Movies: ${mv?.c||0}\n👥 Users: ${us?.c||0}\n🟢 Online: ${activeConnections.size}`);
+  } else if (cmd === '/users') {
+    const us = getAll('SELECT username, subscription, is_active FROM users WHERE role != "admin" LIMIT 20');
+    const list = us.map(u => `${u.is_active?'🟢':'🔴'} ${u.username} (${u.subscription})`).join('\n');
+    sendTelegram(token.value, msg.chat.id, `👥 Users:\n\n${list || 'No users'}`);
+  }
+  res.json({ ok: true });
+});
+// Auto backup timer
+setInterval(() => {
+  try {
+    const enabled = getOne("SELECT value FROM site_settings WHERE key='auto_backup_enabled'");
+    if (enabled?.value !== '1') return;
+    const token = getOne("SELECT value FROM site_settings WHERE key='telegram_bot_token'");
+    const chatId = getOne("SELECT value FROM site_settings WHERE key='telegram_chat_id'");
+    if (!token?.value || !chatId?.value) return;
+    const dbPath = path.join(BASE_DIR, 'iptv.db');
+    sendTelegramFile(token.value, chatId.value, dbPath, 'Auto Backup - ' + new Date().toISOString().split('T')[0]);
+    run("INSERT OR REPLACE INTO site_settings (key, value) VALUES ('last_backup_time', ?)", [new Date().toISOString()]);
+  } catch(e) {}
+}, 6 * 60 * 60 * 1000); // every 6 hours
+
+// ===== GEOBLOCK & VPN DETECTION =====
+app.get('/api/admin/geo-rules', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  res.json(getAll('SELECT * FROM geo_rules ORDER BY country_code'));
+});
+app.post('/api/admin/geo-rules', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  const { country_code, action } = req.body;
+  run('INSERT INTO geo_rules (country_code, action) VALUES (?, ?)', [country_code.toUpperCase(), action || 'block']);
+  res.json({ message: 'Rule added' });
+});
+app.delete('/api/admin/geo-rules/:id', (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  run('DELETE FROM geo_rules WHERE id = ?', [req.params.id]);
+  res.json({ message: 'Rule deleted' });
+});
+
+// ===== PUBLIC STATUS PAGE =====
+app.get('/status', (req, res) => {
+  const totalCh = getOne('SELECT COUNT(*) as c FROM channels WHERE is_active=1');
+  const totalMov = getOne('SELECT COUNT(*) as c FROM movies WHERE is_active=1');
+  const totalSer = getOne('SELECT COUNT(*) as c FROM series WHERE is_active=1');
+  const online = activeConnections.size;
+  const uptime = process.uptime();
+  const hours = Math.floor(uptime / 3600);
+  const mins = Math.floor((uptime % 3600) / 60);
+  res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Server Status</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0d1117;color:#e0e0e0;font-family:system-ui;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.card{background:#161b22;border:1px solid #30363d;border-radius:16px;padding:40px;max-width:500px;width:90%}h1{color:#00ff88;margin-bottom:20px;font-size:24px}
+.stat{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #21262d}.stat:last-child{border:none}.label{color:#8b949e}.value{color:#00d4ff;font-weight:bold}
+.online{color:#00ff88;font-size:28px;text-align:center;margin:16px 0}.badge{display:inline-block;padding:4px 12px;border-radius:20px;font-size:12px;font-weight:bold}
+.badge-ok{background:#0d3320;color:#00ff88}.badge-down{background:#3d0d0d;color:#ff4757}</style></head>
+<body><div class="card"><h1>📡 Server Status</h1><div style="text-align:center;margin-bottom:20px"><span class="badge badge-ok">🟢 ONLINE</span></div>
+<div class="online">${online} viewers now</div>
+<div class="stat"><span class="label">📺 Live Channels</span><span class="value">${totalCh?.c||0}</span></div>
+<div class="stat"><span class="label">🎬 Movies</span><span class="value">${totalMov?.c||0}</span></div>
+<div class="stat"><span class="label">📀 Series</span><span class="value">${totalSer?.c||0}</span></div>
+<div class="stat"><span class="label">⏱️ Uptime</span><span class="value">${hours}h ${mins}m</span></div>
+</div></body></html>`);
+});
+
+// ===== FAVORITES & RATINGS =====
+app.get('/api/favorites/:userId', (req, res) => {
+  const favs = getAll('SELECT * FROM favorites WHERE user_id = ? ORDER BY created_at DESC', [req.params.userId]);
+  res.json(favs);
+});
+app.post('/api/favorites', (req, res) => {
+  const { user_id, item_type, item_id } = req.body;
+  try { run('INSERT INTO favorites (user_id, item_type, item_id) VALUES (?, ?, ?)', [user_id, item_type, item_id]); } catch(e) {}
+  res.json({ message: 'Added to favorites' });
+});
+app.delete('/api/favorites/:userId/:itemType/:itemId', (req, res) => {
+  run('DELETE FROM favorites WHERE user_id = ? AND item_type = ? AND item_id = ?', [req.params.userId, req.params.itemType, req.params.itemId]);
+  res.json({ message: 'Removed from favorites' });
+});
+app.get('/api/ratings/:itemType/:itemId', (req, res) => {
+  const ratings = getAll('SELECT r.*, u.username FROM ratings r LEFT JOIN users u ON r.user_id = u.id WHERE r.item_type = ? AND r.item_id = ? ORDER BY r.created_at DESC', [req.params.itemType, req.params.itemId]);
+  const avg = getOne('SELECT AVG(rating) as avg, COUNT(*) as cnt FROM ratings WHERE item_type = ? AND item_id = ?', [req.params.itemType, req.params.itemId]);
+  res.json({ ratings, average: avg?.avg || 0, count: avg?.cnt || 0 });
+});
+app.post('/api/ratings', (req, res) => {
+  const { user_id, item_type, item_id, rating, comment } = req.body;
+  run('INSERT OR REPLACE INTO ratings (user_id, item_type, item_id, rating, comment) VALUES (?, ?, ?, ?, ?)', [user_id, item_type, item_id, rating, comment || '']);
+  res.json({ message: 'Rating saved' });
 });
 
 // ===== MOVIE CHANNEL API (for player) =====

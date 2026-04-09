@@ -144,6 +144,10 @@
       <a data-action="section" data-section="online"><span class="icon">🟢</span> Online Users</a>
       <a data-action="section" data-section="servers"><span class="icon">🖥️</span> Load Balancing</a>
       <a data-action="section" data-section="autoimport"><span class="icon">🔄</span> Auto-Import</a>
+      <a data-action="section" data-section="epg"><span class="icon">📋</span> EPG Guide</a>
+      <a data-action="section" data-section="statistics"><span class="icon">📈</span> Statistics</a>
+      <a data-action="section" data-section="catchup"><span class="icon">⏪</span> Catch-up TV</a>
+      <a data-action="section" data-section="geoblock"><span class="icon">🌍</span> GeoBlock</a>
       <a data-action="section" data-section="settings"><span class="icon">⚙️</span> Settings</a>
     </nav>
     <div class="logout-btn" id="btnLogout">🚪 Logout</div>
@@ -426,6 +430,78 @@
     </div>
 
     <!-- SETTINGS -->
+    <!-- EPG Guide -->
+    <div class="section" id="sec-epg">
+      <div class="page-header"><h2>EPG Guide</h2><button class="btn btn-primary" data-action="addEpg">+ Add EPG Entry</button></div>
+      <div class="card-section" style="padding:20px;margin-bottom:20px">
+        <h3 style="color:#00d4ff;margin-bottom:12px">Import XMLTV</h3>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+          <div style="flex:1;min-width:260px">
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">XMLTV URL</label>
+            <input id="epgImportUrl" class="search-box" placeholder="https://example.com/epg.xml" style="width:100%">
+          </div>
+          <button class="btn btn-success" data-action="importEpg">Import</button>
+          <a href="/api/admin/epg/export" target="_blank" class="btn btn-ghost">Export XMLTV</a>
+        </div>
+      </div>
+      <div class="card-section">
+        <div class="card-header"><h3>EPG Entries</h3></div>
+        <table><thead><tr><th>Channel</th><th>Title</th><th>Start</th><th>End</th><th>Actions</th></tr></thead>
+        <tbody id="epgTable"><tr><td colspan="5" style="text-align:center;color:#5a6a8a;padding:30px">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- Statistics -->
+    <div class="section" id="sec-statistics">
+      <div class="page-header"><h2>Statistics & Analytics</h2></div>
+      <div class="stats" id="statsOverview"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
+        <div class="card-section" style="padding:20px">
+          <h3 style="color:#00ff88;margin-bottom:12px">Top Channels</h3>
+          <div id="topChannelsList" style="font-size:13px"></div>
+        </div>
+        <div class="card-section" style="padding:20px">
+          <h3 style="color:#ffa500;margin-bottom:12px">Top Movies</h3>
+          <div id="topMoviesList" style="font-size:13px"></div>
+        </div>
+      </div>
+      <div class="card-section" style="padding:20px;margin-bottom:20px">
+        <h3 style="color:#00d4ff;margin-bottom:12px">Peak Hours</h3>
+        <div id="peakHoursChart" style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:10px 0"></div>
+      </div>
+      <div class="card-section">
+        <div class="card-header"><h3>Recent Activity</h3></div>
+        <table><thead><tr><th>User</th><th>Content</th><th>Type</th><th>IP</th><th>Time</th></tr></thead>
+        <tbody id="recentActivityTable"><tr><td colspan="5" style="text-align:center;color:#5a6a8a;padding:30px">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- Catch-up TV -->
+    <div class="section" id="sec-catchup">
+      <div class="page-header"><h2>Catch-up TV</h2><button class="btn btn-primary" data-action="addCatchup">+ Add Recording</button></div>
+      <div class="card-section" style="padding:20px;margin-bottom:20px">
+        <h3 style="color:#00d4ff;margin-bottom:12px">Enable Catch-up per Channel</h3>
+        <p style="color:#5a6a8a;font-size:12px;margin-bottom:12px">Toggle catch-up recording for live channels.</p>
+        <div id="catchupChannelToggles" style="display:flex;flex-wrap:wrap;gap:10px"></div>
+      </div>
+      <div class="card-section">
+        <div class="card-header"><h3>Recordings</h3></div>
+        <table><thead><tr><th>Channel</th><th>Program</th><th>Start</th><th>End</th><th>URL</th><th>Actions</th></tr></thead>
+        <tbody id="catchupTable"><tr><td colspan="6" style="text-align:center;color:#5a6a8a;padding:30px">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+
+    <!-- GeoBlock -->
+    <div class="section" id="sec-geoblock">
+      <div class="page-header"><h2>GeoBlock Rules</h2><button class="btn btn-primary" data-action="addGeoRule">+ Add Rule</button></div>
+      <p style="color:#5a6a8a;font-size:13px;margin-bottom:20px">Block or allow access from specific countries. Rules are checked against user IP addresses.</p>
+      <div class="card-section">
+        <div class="card-header"><h3>Rules</h3></div>
+        <table><thead><tr><th>Country Code</th><th>Action</th><th>Description</th><th>Actions</th></tr></thead>
+        <tbody id="geoRulesTable"><tr><td colspan="4" style="text-align:center;color:#5a6a8a;padding:30px">Loading...</td></tr></tbody></table>
+      </div>
+    </div>
+
     <div class="section" id="sec-settings">
       <div class="page-header"><h2>Server Settings</h2></div>
 
@@ -535,6 +611,26 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap">
           <button class="btn btn-success" data-action="saveSettings">Save Settings</button>
           <button class="btn" data-action="previewWatermark">Preview Watermark</button>
+        </div>
+      </div>
+
+      <!-- Telegram Bot & Auto-Backup -->
+      <div class="card-section" style="padding:24px;margin-bottom:20px">
+        <h3 style="color:#00d4ff;margin-bottom:16px">Telegram Bot & Auto-Backup</h3>
+        <p style="color:#5a6a8a;font-size:12px;margin-bottom:16px">Connect a Telegram bot to receive notifications and auto-backups every 6 hours.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Bot Token</label>
+            <input id="telegram_bot_token" class="search-box" placeholder="123456:ABC-DEF..." style="width:100%;box-sizing:border-box">
+          </div>
+          <div>
+            <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Chat ID</label>
+            <input id="telegram_chat_id" class="search-box" placeholder="Your Telegram Chat ID" style="width:100%;box-sizing:border-box">
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-success" data-action="saveTelegramSettings">Save Telegram Settings</button>
+          <button class="btn btn-primary" data-action="testTelegram">Send Test Message</button>
         </div>
       </div>
 
@@ -1529,6 +1625,10 @@ function showSection(name) {
   if(name==='security') loadSecurity();
   if(name==='servers') loadServers();
   if(name==='autoimport') loadImportSources();
+  if(name==='epg') loadEpg();
+  if(name==='statistics') loadStatistics();
+  if(name==='catchup') loadCatchup();
+  if(name==='geoblock') loadGeoRules();
   if(name==='settings') { loadStaffList();
     document.getElementById('settingsUrl').textContent = window.location.origin;
     document.getElementById('settingsPort').textContent = window.location.port || '80';
@@ -1720,6 +1820,23 @@ document.addEventListener('click', function(e) {
       if(url) { navigator.clipboard.writeText(url).then(()=>{ btn.style.background='#0f5132'; setTimeout(()=>btn.style.background='',1000); }); }
       break;
     }
+    // EPG
+    case 'addEpg': openEpgModal(); break;
+    case 'saveEpgEntry': saveEpgEntry(); break;
+    case 'deleteEpg': if(confirm('Delete this EPG entry?')) deleteEpg(numId); break;
+    case 'importEpg': importEpg(); break;
+    // Catch-up
+    case 'addCatchup': openCatchupModal(); break;
+    case 'saveCatchupEntry': saveCatchupEntry(); break;
+    case 'deleteCatchup': if(confirm('Delete this recording?')) deleteCatchup(numId); break;
+    case 'toggleCatchup': toggleCatchup(numId); break;
+    // GeoBlock
+    case 'addGeoRule': openGeoRuleModal(); break;
+    case 'saveGeoRule': saveGeoRule(); break;
+    case 'deleteGeoRule': if(confirm('Delete this rule?')) deleteGeoRule(numId); break;
+    // Telegram
+    case 'testTelegram': testTelegram(); break;
+    case 'saveTelegramSettings': saveTelegramSettings(); break;
   }
 });
 
@@ -2432,6 +2549,9 @@ async function loadSettings() {
     document.getElementById('wm_on_movies').checked = data.wm_on_movies !== '0';
     document.getElementById('wm_on_series').checked = data.wm_on_series !== '0';
     document.getElementById('wm_ffmpeg').checked = data.wm_ffmpeg === '1';
+    // Telegram settings
+    if (data.telegram_bot_token !== undefined) document.getElementById('telegram_bot_token').value = data.telegram_bot_token || '';
+    if (data.telegram_chat_id !== undefined) document.getElementById('telegram_chat_id').value = data.telegram_chat_id || '';
   } catch(e) { /* silently ignore if endpoint not yet available */ }
 }
 
@@ -2505,6 +2625,262 @@ async function addSelectedToRestream() {
   btn.disabled = false;
   alert(`Done: ${added} added${failed ? ', ' + failed + ' failed' : ''}.`);
   if (added > 0) loadRestreams();
+}
+
+// ===== EPG GUIDE =====
+async function loadEpg() {
+  try {
+    const data = await api('/api/admin/epg');
+    const tbody = document.getElementById('epgTable');
+    if (!data.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:#5a6a8a;padding:30px">No EPG entries. Add entries or import an XMLTV file.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(e => `<tr>
+      <td>${e.channel_id || ''}</td>
+      <td><strong>${e.title || ''}</strong><br><span style="color:#5a6a8a;font-size:11px">${e.description || ''}</span></td>
+      <td style="font-size:12px">${e.start_time || ''}</td>
+      <td style="font-size:12px">${e.end_time || ''}</td>
+      <td><button class="btn btn-danger btn-sm" data-action="deleteEpg" data-id="${e.id}">Del</button></td>
+    </tr>`).join('');
+  } catch(e) { console.error('Load EPG error:', e); }
+}
+
+function openEpgModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h3>Add EPG Entry</h3>
+    <label>Channel ID</label>
+    <input id="epg_channel_id" placeholder="e.g. channel_1">
+    <label>Title</label>
+    <input id="epg_title" placeholder="Program title">
+    <label>Description</label>
+    <textarea id="epg_description" placeholder="Program description"></textarea>
+    <div class="form-row">
+      <div><label>Start Time</label><input id="epg_start" type="datetime-local"></div>
+      <div><label>End Time</label><input id="epg_end" type="datetime-local"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" data-action="saveEpgEntry">Save</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveEpgEntry() {
+  try {
+    await api('/api/admin/epg', 'POST', {
+      channel_id: document.getElementById('epg_channel_id').value,
+      title: document.getElementById('epg_title').value,
+      description: document.getElementById('epg_description').value,
+      start_time: document.getElementById('epg_start').value,
+      end_time: document.getElementById('epg_end').value
+    });
+    closeModal(); loadEpg();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function deleteEpg(id) {
+  try { await api('/api/admin/epg/' + id, 'DELETE'); loadEpg(); } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function importEpg() {
+  const url = document.getElementById('epgImportUrl').value.trim();
+  if (!url) { alert('Enter XMLTV URL'); return; }
+  try {
+    const data = await api('/api/admin/epg/import', 'POST', { url });
+    alert('Imported ' + (data.imported || 0) + ' EPG entries');
+    loadEpg();
+  } catch(e) { alert('Import failed: ' + e.message); }
+}
+
+// ===== STATISTICS =====
+async function loadStatistics() {
+  try {
+    const data = await api('/api/admin/stats/overview');
+    document.getElementById('statsOverview').innerHTML = `
+      <div class="stat-card"><div class="number">${data.activeNow || 0}</div><div class="label">Active Now</div></div>
+      <div class="stat-card"><div class="number">${data.today || 0}</div><div class="label">Views Today</div></div>
+      <div class="stat-card"><div class="number">${data.week || 0}</div><div class="label">This Week</div></div>
+      <div class="stat-card"><div class="number">${data.month || 0}</div><div class="label">This Month</div></div>`;
+
+    // Top channels
+    const topCh = data.topChannels || [];
+    document.getElementById('topChannelsList').innerHTML = topCh.length
+      ? topCh.map((c, i) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e2844"><span>${i+1}. ${c.channel_name}</span><span style="color:#00ff88">${c.views} views</span></div>`).join('')
+      : '<span style="color:#5a6a8a">No data yet</span>';
+
+    // Top movies
+    const topMv = data.topMovies || [];
+    document.getElementById('topMoviesList').innerHTML = topMv.length
+      ? topMv.map((m, i) => `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #1e2844"><span>${i+1}. ${m.channel_name}</span><span style="color:#ffa500">${m.views} views</span></div>`).join('')
+      : '<span style="color:#5a6a8a">No data yet</span>';
+
+    // Peak hours chart
+    const hours = data.peakHours || [];
+    const maxViews = Math.max(...hours.map(h => h.views), 1);
+    const chartHtml = [];
+    for (let h = 0; h < 24; h++) {
+      const found = hours.find(x => x.hour === h);
+      const views = found ? found.views : 0;
+      const pct = Math.max((views / maxViews) * 100, 2);
+      chartHtml.push(`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+        <span style="font-size:10px;color:#5a6a8a">${views}</span>
+        <div style="width:100%;background:#00d4ff40;border-radius:3px 3px 0 0;height:${pct}%;min-height:2px;transition:height 0.3s" title="${h}:00 - ${views} views"></div>
+        <span style="font-size:9px;color:#5a6a8a">${h}</span>
+      </div>`);
+    }
+    document.getElementById('peakHoursChart').innerHTML = chartHtml.join('');
+
+    // Recent activity
+    const recent = data.recent || [];
+    document.getElementById('recentActivityTable').innerHTML = recent.length
+      ? recent.map(r => `<tr>
+          <td>${r.username || 'Unknown'}</td>
+          <td>${r.channel_name || ''}</td>
+          <td><span class="badge ${r.stream_type === 'live' ? 'badge-active' : 'badge-monthly'}">${r.stream_type}</span></td>
+          <td style="font-size:11px;color:#5a6a8a">${r.ip_address || ''}</td>
+          <td style="font-size:11px;color:#5a6a8a">${r.started_at || ''}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="5" style="text-align:center;color:#5a6a8a;padding:30px">No activity recorded yet</td></tr>';
+  } catch(e) { console.error('Load statistics error:', e); }
+}
+
+// ===== CATCH-UP TV =====
+async function loadCatchup() {
+  try {
+    // Load recordings
+    const recordings = await api('/api/admin/catchup');
+    const tbody = document.getElementById('catchupTable');
+    if (!recordings.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#5a6a8a;padding:30px">No catch-up recordings yet.</td></tr>';
+    } else {
+      tbody.innerHTML = recordings.map(r => `<tr>
+        <td>${r.channel_name || 'Ch #' + r.channel_id}</td>
+        <td>${r.program_title || ''}</td>
+        <td style="font-size:12px">${r.start_time || ''}</td>
+        <td style="font-size:12px">${r.end_time || ''}</td>
+        <td style="font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis">${r.recording_url || ''}</td>
+        <td><button class="btn btn-danger btn-sm" data-action="deleteCatchup" data-id="${r.id}">Del</button></td>
+      </tr>`).join('');
+    }
+    // Load channel toggles
+    const channels = allChannels.length ? allChannels : await api('/api/admin/channels').then(d => { allChannels = d; return d; });
+    document.getElementById('catchupChannelToggles').innerHTML = channels.map(c => `
+      <label style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:#0d1120;border:1px solid #1e2844;border-radius:8px;cursor:pointer;font-size:12px">
+        <input type="checkbox" ${c.catchup_enabled ? 'checked' : ''} data-action="toggleCatchup" data-id="${c.id}"> ${c.name}
+      </label>`).join('');
+  } catch(e) { console.error('Load catchup error:', e); }
+}
+
+function openCatchupModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h3>Add Catch-up Recording</h3>
+    <label>Channel ID</label>
+    <input id="catchup_channel_id" type="number" placeholder="Channel ID">
+    <label>Program Title</label>
+    <input id="catchup_title" placeholder="Program name">
+    <div class="form-row">
+      <div><label>Start Time</label><input id="catchup_start" type="datetime-local"></div>
+      <div><label>End Time</label><input id="catchup_end" type="datetime-local"></div>
+    </div>
+    <label>Recording URL</label>
+    <input id="catchup_url" placeholder="https://...">
+    <div class="modal-actions">
+      <button class="btn" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" data-action="saveCatchupEntry">Save</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveCatchupEntry() {
+  try {
+    await api('/api/admin/catchup', 'POST', {
+      channel_id: parseInt(document.getElementById('catchup_channel_id').value),
+      program_title: document.getElementById('catchup_title').value,
+      start_time: document.getElementById('catchup_start').value,
+      end_time: document.getElementById('catchup_end').value,
+      recording_url: document.getElementById('catchup_url').value
+    });
+    closeModal(); loadCatchup();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function deleteCatchup(id) {
+  try { await api('/api/admin/catchup/' + id, 'DELETE'); loadCatchup(); } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function toggleCatchup(channelId) {
+  try { await api('/api/admin/catchup/toggle/' + channelId, 'POST'); } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ===== GEOBLOCK =====
+async function loadGeoRules() {
+  try {
+    const rules = await api('/api/admin/geo-rules');
+    const tbody = document.getElementById('geoRulesTable');
+    if (!rules.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#5a6a8a;padding:30px">No GeoBlock rules. Add rules to restrict access by country.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rules.map(r => `<tr>
+      <td><strong style="font-size:16px">${r.country_code}</strong></td>
+      <td><span class="badge ${r.action === 'block' ? 'badge-inactive' : 'badge-active'}">${r.action === 'block' ? 'BLOCK' : 'ALLOW'}</span></td>
+      <td style="color:#5a6a8a">${r.description || ''}</td>
+      <td><button class="btn btn-danger btn-sm" data-action="deleteGeoRule" data-id="${r.id}">Del</button></td>
+    </tr>`).join('');
+  } catch(e) { console.error('Load geo rules error:', e); }
+}
+
+function openGeoRuleModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h3>Add GeoBlock Rule</h3>
+    <label>Country Code (ISO 2-letter)</label>
+    <input id="geo_country" placeholder="e.g. US, EG, DE" maxlength="2" style="text-transform:uppercase">
+    <label>Action</label>
+    <select id="geo_action">
+      <option value="block">Block</option>
+      <option value="allow">Allow</option>
+    </select>
+    <label>Description (optional)</label>
+    <input id="geo_desc" placeholder="Reason for this rule">
+    <div class="modal-actions">
+      <button class="btn" data-action="closeModal">Cancel</button>
+      <button class="btn btn-primary" data-action="saveGeoRule">Save</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+
+async function saveGeoRule() {
+  try {
+    await api('/api/admin/geo-rules', 'POST', {
+      country_code: document.getElementById('geo_country').value.toUpperCase(),
+      action: document.getElementById('geo_action').value,
+      description: document.getElementById('geo_desc').value
+    });
+    closeModal(); loadGeoRules();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function deleteGeoRule(id) {
+  try { await api('/api/admin/geo-rules/' + id, 'DELETE'); loadGeoRules(); } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ===== TELEGRAM BOT SETTINGS =====
+async function saveTelegramSettings() {
+  try {
+    const botToken = document.getElementById('telegram_bot_token').value;
+    const chatId = document.getElementById('telegram_chat_id').value;
+    await api('/api/admin/settings', 'PUT', { key: 'telegram_bot_token', value: botToken });
+    await api('/api/admin/settings', 'PUT', { key: 'telegram_chat_id', value: chatId });
+    alert('Telegram settings saved!');
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function testTelegram() {
+  try {
+    const data = await api('/api/admin/telegram/test', 'POST');
+    alert(data.message || 'Test message sent!');
+  } catch(e) { alert('Failed: ' + e.message); }
 }
 </script>
 </body>

@@ -399,6 +399,79 @@ async function init() {
   try { db.run("ALTER TABLE custom_channels ADD COLUMN stream_format TEXT DEFAULT 'm3u8'"); } catch(e) {}
   try { db.run('ALTER TABLE custom_channels ADD COLUMN show_in_live INTEGER DEFAULT 1'); } catch(e) {}
 
+  // View Statistics (Analytics)
+  db.run(`CREATE TABLE IF NOT EXISTS view_stats (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    channel_id INTEGER,
+    channel_name TEXT,
+    stream_type TEXT DEFAULT 'live',
+    started_at TEXT DEFAULT (datetime('now')),
+    ended_at TEXT,
+    duration_seconds INTEGER DEFAULT 0,
+    ip_address TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )`);
+  // Indexes for fast analytics queries
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_view_stats_started ON view_stats(started_at)'); } catch(e) {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_view_stats_user ON view_stats(user_id)'); } catch(e) {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_view_stats_type ON view_stats(stream_type)'); } catch(e) {}
+
+  // EPG (Electronic Program Guide)
+  db.run(`CREATE TABLE IF NOT EXISTS epg_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_epg_channel ON epg_data(channel_id)'); } catch(e) {}
+  try { db.run('CREATE INDEX IF NOT EXISTS idx_epg_time ON epg_data(start_time, end_time)'); } catch(e) {}
+
+  // Catch-up Recordings
+  db.run(`CREATE TABLE IF NOT EXISTS catchup_recordings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id INTEGER,
+    title TEXT,
+    start_time TEXT,
+    end_time TEXT,
+    video_url TEXT,
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+  try { db.run('ALTER TABLE channels ADD COLUMN catchup_enabled INTEGER DEFAULT 0'); } catch(e) {}
+
+  // Favorites
+  db.run(`CREATE TABLE IF NOT EXISTS favorites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    item_type TEXT,
+    item_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, item_type, item_id)
+  )`);
+
+  // Ratings
+  db.run(`CREATE TABLE IF NOT EXISTS ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    item_type TEXT,
+    item_id INTEGER,
+    rating INTEGER,
+    comment TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    UNIQUE(user_id, item_type, item_id)
+  )`);
+
+  // Blocked Countries / GeoBlock
+  db.run(`CREATE TABLE IF NOT EXISTS geo_rules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    country_code TEXT NOT NULL,
+    action TEXT DEFAULT 'block',
+    created_at TEXT DEFAULT (datetime('now'))
+  )`);
+
   // === SEED DATA ===
 
   // Admin
