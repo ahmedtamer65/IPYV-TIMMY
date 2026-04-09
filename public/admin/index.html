@@ -2126,7 +2126,33 @@ function openCustomChannelModal(channel) {
       <textarea id="cc_durations" rows="4" style="width:100%;box-sizing:border-box;background:#0a0e1a;border:1px solid #1e2844;border-radius:8px;color:#e0e0e0;font-size:13px;padding:10px;font-family:monospace;resize:vertical" placeholder="90&#10;120&#10;95">${(channel && channel.durations ? channel.durations : []).map(d=>Math.round(d/60)).join('\n')}</textarea>
       <div style="font-size:11px;color:#5a6a8a;margin-top:4px">Enter duration in minutes for each video. If empty, defaults to 120 min (2 hours). When video finishes, next one starts automatically.</div>
     </div>
-    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="cc_watermark" ${channel?.watermark!==0?'checked':''}> Show Watermark on this channel</label>
+    <div style="background:#111827;border:1px solid #1e2844;border-radius:10px;padding:14px;margin-bottom:12px">
+      <h4 style="color:#00d4ff;margin:0 0 10px 0;font-size:13px">Watermark Settings</h4>
+      <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;cursor:pointer;color:#e0e0e0;font-size:13px"><input type="checkbox" id="cc_watermark" ${channel?.watermark!==0?'checked':''}> Enable Watermark</label>
+      <div style="margin-bottom:8px">
+        <label style="color:#5a6a8a;font-size:11px;display:block;margin-bottom:3px">Watermark Image URL</label>
+        <input id="cc_wmurl" class="search-box" placeholder="https://... (leave empty for global)" style="width:100%;box-sizing:border-box" value="${channel?.watermark_url||''}">
+        ${channel?.watermark_url ? '<img src="'+channel.watermark_url+'" style="max-height:35px;margin:4px 0;border-radius:4px;background:#0a0e1a;padding:2px" onerror="this.style.display=\'none\'">' : ''}
+      </div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:120px"><label style="color:#5a6a8a;font-size:11px;display:block;margin-bottom:3px">Position</label>
+          <select id="cc_wmpos" class="search-box" style="width:100%;box-sizing:border-box">
+            <option value="top-left" ${channel?.watermark_position==='top-left'?'selected':''}>Top Left</option>
+            <option value="top-right" ${(!channel?.watermark_position||channel?.watermark_position==='top-right')?'selected':''}>Top Right</option>
+            <option value="bottom-left" ${channel?.watermark_position==='bottom-left'?'selected':''}>Bottom Left</option>
+            <option value="bottom-right" ${channel?.watermark_position==='bottom-right'?'selected':''}>Bottom Right</option>
+            <option value="center" ${channel?.watermark_position==='center'?'selected':''}>Center</option>
+          </select>
+        </div>
+        <div style="flex:1;min-width:120px"><label style="color:#5a6a8a;font-size:11px;display:block;margin-bottom:3px">Opacity: <span id="cc_opval">${channel?.watermark_opacity||0.8}</span></label>
+          <input id="cc_wmopacity" type="range" min="0.1" max="1.0" step="0.05" value="${channel?.watermark_opacity||0.8}" style="width:100%;accent-color:#00ff88" oninput="document.getElementById('cc_opval').textContent=this.value">
+        </div>
+        <div style="min-width:80px"><label style="color:#5a6a8a;font-size:11px;display:block;margin-bottom:3px">Size (px)</label>
+          <input id="cc_wmsize" type="number" value="${channel?.watermark_size||120}" min="20" max="500" style="width:80px;background:#0a0e1a;border:1px solid #1e2844;border-radius:6px;color:#e0e0e0;padding:4px 8px">
+        </div>
+      </div>
+    </div>
+    ${channel ? '<div style="background:#111827;border:1px solid #1e2844;border-radius:10px;padding:14px;margin-bottom:12px"><h4 style="color:#00d4ff;margin:0 0 8px 0;font-size:13px">Stream URLs (click to copy)</h4><div style="font-size:11px;display:flex;flex-direction:column;gap:4px"><div><span style="color:#5a6a8a">TS:</span> <code style="background:#0a0e1a;padding:2px 6px;border-radius:4px;color:#00ff88;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent);this.style.color=\\'#fff\\';setTimeout(()=>this.style.color=\\'#00ff88\\',1000)">'+location.origin+'/live/custom/'+channel.id+'.ts</code></div><div><span style="color:#5a6a8a">M3U8:</span> <code style="background:#0a0e1a;padding:2px 6px;border-radius:4px;color:#00ff88;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent);this.style.color=\\'#fff\\';setTimeout(()=>this.style.color=\\'#00ff88\\',1000)">'+location.origin+'/live/custom/'+channel.id+'.m3u8</code></div><div><span style="color:#5a6a8a">MP4:</span> <code style="background:#0a0e1a;padding:2px 6px;border-radius:4px;color:#00ff88;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent);this.style.color=\\'#fff\\';setTimeout(()=>this.style.color=\\'#00ff88\\',1000)">'+location.origin+'/live/custom/'+channel.id+'.mp4</code></div></div></div>' : ''}
     <div style="display:flex;gap:10px">
       <button class="btn btn-success" data-action="saveCustomChannel">Save Channel</button>
       <button class="btn" data-action="closeModal">Cancel</button>
@@ -2151,7 +2177,12 @@ async function saveCustomChannel() {
     return (mins && mins > 0) ? mins * 60 : 7200; // convert mins to seconds, default 2hr
   });
 
-  const body = { name, category, description, logo_url, video_urls, durations, watermark };
+  const watermark_url = document.getElementById('cc_wmurl').value.trim();
+  const watermark_position = document.getElementById('cc_wmpos').value;
+  const watermark_opacity = parseFloat(document.getElementById('cc_wmopacity').value);
+  const watermark_size = parseInt(document.getElementById('cc_wmsize').value) || 120;
+
+  const body = { name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size };
   if (id) {
     await api('/api/admin/custom-channels/' + id, 'PUT', body);
   } else {

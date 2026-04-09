@@ -1263,23 +1263,24 @@ app.get('/api/admin/custom-channels', (req, res) => {
 
 app.post('/api/admin/custom-channels', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { name, category, description, logo_url, video_urls, durations } = req.body;
+  const { name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const urls = Array.isArray(video_urls) ? video_urls : [];
   const durs = Array.isArray(durations) ? durations : [];
-  run('INSERT INTO custom_channels (name, category, description, logo_url, video_urls, durations) VALUES (?, ?, ?, ?, ?, ?)',
-    [name, category || '24/7 Channels', description || '', logo_url || '', JSON.stringify(urls), JSON.stringify(durs)]);
+  run('INSERT INTO custom_channels (name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [name, category || '24/7 Channels', description || '', logo_url || '', JSON.stringify(urls), JSON.stringify(durs), watermark !== undefined ? watermark : 1, watermark_url || '', watermark_position || 'top-right', watermark_opacity || 0.8, watermark_size || 120]);
   res.json({ message: 'Custom channel created' });
 });
 
 app.put('/api/admin/custom-channels/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { name, category, description, logo_url, video_urls, durations, is_active } = req.body;
-  run('UPDATE custom_channels SET name=?, category=?, description=?, logo_url=?, video_urls=?, durations=?, is_active=? WHERE id=?', [
+  const { name, category, description, logo_url, video_urls, durations, is_active, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size } = req.body;
+  run('UPDATE custom_channels SET name=?, category=?, description=?, logo_url=?, video_urls=?, durations=?, is_active=?, watermark=?, watermark_url=?, watermark_position=?, watermark_opacity=?, watermark_size=? WHERE id=?', [
     name, category || '24/7 Channels', description || '', logo_url || '',
     JSON.stringify(Array.isArray(video_urls) ? video_urls : []),
     JSON.stringify(Array.isArray(durations) ? durations : []),
     is_active !== undefined ? is_active : 1,
+    watermark !== undefined ? watermark : 1, watermark_url || '', watermark_position || 'top-right', watermark_opacity || 0.8, watermark_size || 120,
     req.params.id
   ]);
   res.json({ message: 'Custom channel updated' });

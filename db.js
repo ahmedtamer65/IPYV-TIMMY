@@ -392,6 +392,10 @@ async function init() {
   try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark INTEGER DEFAULT 1'); } catch(e) {}
   try { db.run("ALTER TABLE custom_channels ADD COLUMN category TEXT DEFAULT '24/7 Channels'"); } catch(e) {}
   try { db.run("ALTER TABLE custom_channels ADD COLUMN durations TEXT DEFAULT '[]'"); } catch(e) {}
+  try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark_url TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark_position TEXT'); } catch(e) {}
+  try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark_opacity REAL'); } catch(e) {}
+  try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark_size INTEGER'); } catch(e) {}
 
   // === SEED DATA ===
 
