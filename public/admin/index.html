@@ -2152,7 +2152,14 @@ function openCustomChannelModal(channel) {
         </div>
       </div>
     </div>
-    ${channel ? '<div style="background:#111827;border:1px solid #1e2844;border-radius:10px;padding:14px;margin-bottom:12px"><h4 style="color:#00d4ff;margin:0 0 8px 0;font-size:13px">Stream URLs (click to copy)</h4><div style="font-size:11px;display:flex;flex-direction:column;gap:4px"><div><span style="color:#5a6a8a">TS:</span> <code style="background:#0a0e1a;padding:2px 6px;border-radius:4px;color:#00ff88;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent);this.style.color=\\'#fff\\';setTimeout(()=>this.style.color=\\'#00ff88\\',1000)">'+location.origin+'/live/custom/'+channel.id+'.ts</code></div><div><span style="color:#5a6a8a">M3U8:</span> <code style="background:#0a0e1a;padding:2px 6px;border-radius:4px;color:#00ff88;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent);this.style.color=\\'#fff\\';setTimeout(()=>this.style.color=\\'#00ff88\\',1000)">'+location.origin+'/live/custom/'+channel.id+'.m3u8</code></div><div><span style="color:#5a6a8a">MP4:</span> <code style="background:#0a0e1a;padding:2px 6px;border-radius:4px;color:#00ff88;cursor:pointer" onclick="navigator.clipboard.writeText(this.textContent);this.style.color=\\'#fff\\';setTimeout(()=>this.style.color=\\'#00ff88\\',1000)">'+location.origin+'/live/custom/'+channel.id+'.mp4</code></div></div></div>' : ''}
+    ${channel ? `<div style="background:#111827;border:1px solid #1e2844;border-radius:10px;padding:14px;margin-bottom:12px">
+      <h4 style="color:#00d4ff;margin:0 0 8px 0;font-size:13px">Stream URLs (click to copy)</h4>
+      <div style="font-size:11px;display:flex;flex-direction:column;gap:6px">
+        <div><span style="color:#5a6a8a;margin-right:6px">TS:</span><code class="copy-url" style="background:#0a0e1a;padding:3px 8px;border-radius:4px;color:#00ff88;cursor:pointer">${location.origin}/live/custom/${channel.id}.ts</code></div>
+        <div><span style="color:#5a6a8a;margin-right:6px">M3U8:</span><code class="copy-url" style="background:#0a0e1a;padding:3px 8px;border-radius:4px;color:#00ff88;cursor:pointer">${location.origin}/live/custom/${channel.id}.m3u8</code></div>
+        <div><span style="color:#5a6a8a;margin-right:6px">MP4:</span><code class="copy-url" style="background:#0a0e1a;padding:3px 8px;border-radius:4px;color:#00ff88;cursor:pointer">${location.origin}/live/custom/${channel.id}.mp4</code></div>
+      </div>
+    </div>` : ''}
     <div style="display:flex;gap:10px">
       <button class="btn btn-success" data-action="saveCustomChannel">Save Channel</button>
       <button class="btn" data-action="closeModal">Cancel</button>
