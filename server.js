@@ -618,8 +618,8 @@ app.get('/series/:username/:password/:episodeId', (req, res, next) => {
 });
 
 // Static files
-app.use('/admin', express.static(path.join(BASE_DIR, 'public', 'admin')));
-app.use('/player', express.static(path.join(BASE_DIR, 'public', 'player')));
+app.use('/admin', express.static(path.join(BASE_DIR, 'public', 'admin'), { etag: false, maxAge: 0, setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate'); res.setHeader('Pragma', 'no-cache'); } }));
+app.use('/player', express.static(path.join(BASE_DIR, 'public', 'player'), { etag: false, maxAge: 0, setHeaders: (res) => { res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate'); res.setHeader('Pragma', 'no-cache'); } }));
 app.use('/media', express.static(path.join(BASE_DIR, 'media')));
 
 // Serve HLS segments
