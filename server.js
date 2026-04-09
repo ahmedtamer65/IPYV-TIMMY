@@ -250,12 +250,19 @@ function proxyWithWatermark(url, req, res, watermarkOpts) {
   const position = wm.position || 'top-right';
 
   // Calculate overlay position
+  const margin = wm.margin || 0; // custom margin in pixels
   let overlayPos = 'W-w-10:10'; // top-right default
-  if (position === 'top-left') overlayPos = '10:10';
-  else if (position === 'top-right') overlayPos = 'W-w-10:10';
-  else if (position === 'bottom-left') overlayPos = '10:H-h-10';
-  else if (position === 'bottom-right') overlayPos = 'W-w-10:H-h-10';
+  if (position === 'top-left') overlayPos = `${margin||10}:${margin||10}`;
+  else if (position === 'top-left-corner') overlayPos = '0:0';
+  else if (position === 'top-right') overlayPos = `W-w-${margin||10}:${margin||10}`;
+  else if (position === 'top-right-corner') overlayPos = 'W-w:0';
+  else if (position === 'bottom-left') overlayPos = `${margin||10}:H-h-${margin||10}`;
+  else if (position === 'bottom-left-corner') overlayPos = '0:H-h';
+  else if (position === 'bottom-right') overlayPos = `W-w-${margin||10}:H-h-${margin||10}`;
+  else if (position === 'bottom-right-corner') overlayPos = 'W-w:H-h';
   else if (position === 'center') overlayPos = '(W-w)/2:(H-h)/2';
+  else if (position === 'top-center') overlayPos = `(W-w)/2:${margin||10}`;
+  else if (position === 'bottom-center') overlayPos = `(W-w)/2:H-h-${margin||10}`;
 
   // FFmpeg command: input stream + watermark image overlay
   const ffArgs = [
@@ -837,32 +844,36 @@ app.get('/player_api.php', (req, res) => {
 
   // Get live channels
   if (action === 'get_live_categories') {
+    // Build unified category list from channels + custom channels
     const cats = getAll("SELECT DISTINCT category FROM channels WHERE is_active = 1 AND name != '__category_placeholder__'");
-    const result = cats.map((c, i) => ({
-      category_id: String(i + 1),
-      category_name: c.category,
-      parent_id: 0
-    }));
-    // Add custom 24/7 channel categories
+    const allCatNames = cats.map(c => c.category);
     const customCats = getAll('SELECT DISTINCT category FROM custom_channels WHERE is_active = 1');
-    const existingNames = result.map(r => r.category_name);
-    customCats.forEach((cc, i) => {
+    customCats.forEach(cc => {
       const catName = cc.category || '24/7 Channels';
-      if (!existingNames.includes(catName)) {
-        result.push({ category_id: String(9000 + i), category_name: catName, parent_id: 0 });
-        existingNames.push(catName);
-      }
+      if (!allCatNames.includes(catName)) allCatNames.push(catName);
     });
-    return res.json(result);
+    return res.json(allCatNames.map((name, i) => ({
+      category_id: String(i + 1),
+      category_name: name,
+      parent_id: 0
+    })));
   }
 
   if (action === 'get_live_streams') {
+    // Build unified category list for ID lookup
+    const allCatsDb = getAll("SELECT DISTINCT category FROM channels WHERE is_active = 1 AND name != '__category_placeholder__'");
+    const allCatNames = allCatsDb.map(c => c.category);
+    const customCatsDb = getAll('SELECT DISTINCT category FROM custom_channels WHERE is_active = 1');
+    customCatsDb.forEach(cc => {
+      const catName = cc.category || '24/7 Channels';
+      if (!allCatNames.includes(catName)) allCatNames.push(catName);
+    });
+
     const channels = getAll("SELECT * FROM channels WHERE is_active = 1 AND name != '__category_placeholder__' ORDER BY sort_order");
-    const cats = [...new Set(channels.map(c => c.category))];
     const baseUrl = req.protocol + '://' + req.get('host');
     const result = channels.map(c => {
-      // Determine container extension from URL
       const ext = c.stream_url && c.stream_url.includes('.m3u8') ? 'm3u8' : 'ts';
+      const catIdx = allCatNames.indexOf(c.category) + 1;
       return {
         num: c.id,
         name: c.name,
@@ -872,8 +883,8 @@ app.get('/player_api.php', (req, res) => {
         epg_channel_id: c.epg_id || null,
         added: c.created_at ? String(Math.floor(new Date(c.created_at).getTime() / 1000)) : '0',
         is_adult: '0',
-        category_id: String(cats.indexOf(c.category) + 1),
-        category_ids: [cats.indexOf(c.category) + 1],
+        category_id: String(catIdx),
+        category_ids: [catIdx],
         custom_sid: '',
         tv_archive: 0,
         direct_source: c.stream_url || '',
@@ -886,11 +897,13 @@ app.get('/player_api.php', (req, res) => {
         watermark_size: c.watermark_size
       };
     });
-    // Add custom 24/7 channels to live streams
-    const custom24 = getAll('SELECT * FROM custom_channels WHERE is_active = 1');
+    // Add custom 24/7 channels to live streams (only if show_in_live)
+    const custom24 = getAll('SELECT * FROM custom_channels WHERE is_active = 1 AND show_in_live = 1');
     custom24.forEach(cc => {
       const urls = JSON.parse(cc.video_urls || '[]');
       if (urls.length > 0) {
+        const ccCatName = cc.category || '24/7 Channels';
+        const ccCatIdx = allCatNames.indexOf(ccCatName) + 1;
         result.push({
           num: 90000 + cc.id,
           name: cc.name,
@@ -900,13 +913,13 @@ app.get('/player_api.php', (req, res) => {
           epg_channel_id: null,
           added: '0',
           is_adult: '0',
-          category_id: cc.category || '24/7 Channels',
-          category_ids: [cc.category || '24/7 Channels'],
+          category_id: String(ccCatIdx || 1),
+          category_ids: [ccCatIdx || 1],
           custom_sid: 'custom_' + cc.id,
           tv_archive: 0,
           direct_source: '',
           tv_archive_duration: 0,
-          container_extension: 'ts'
+          container_extension: 'm3u8'
         });
       }
     });
@@ -1140,13 +1153,14 @@ app.get('/get.php', (req, res) => {
     m3u += `${baseUrl}/live/movies.m3u8?token=${username}:${password}\n`;
   }
 
-  // Custom 24/7 channels
-  const customChs = getAll('SELECT * FROM custom_channels WHERE is_active = 1');
+  // Custom 24/7 channels (only if show_in_live)
+  const customChs = getAll('SELECT * FROM custom_channels WHERE is_active = 1 AND show_in_live = 1');
   customChs.forEach(cc => {
     const urls = JSON.parse(cc.video_urls || '[]');
+    const fmt = cc.stream_format || 'm3u8';
     if (urls.length > 0) {
       m3u += `#EXTINF:-1 tvg-name="${cc.name}" tvg-logo="${cc.logo_url || ''}" group-title="${cc.category || '24/7 Channels'}",${cc.name}\n`;
-      m3u += `${baseUrl}/live/custom/${cc.id}.ts?username=${username}&password=${password}\n`;
+      m3u += `${baseUrl}/live/custom/${cc.id}.${fmt}?username=${username}&password=${password}\n`;
     }
   });
 
@@ -1262,24 +1276,25 @@ app.get('/api/admin/custom-channels', (req, res) => {
 
 app.post('/api/admin/custom-channels', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size } = req.body;
+  const { name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size, stream_format, show_in_live } = req.body;
   if (!name) return res.status(400).json({ error: 'name required' });
   const urls = Array.isArray(video_urls) ? video_urls : [];
   const durs = Array.isArray(durations) ? durations : [];
-  run('INSERT INTO custom_channels (name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    [name, category || '24/7 Channels', description || '', logo_url || '', JSON.stringify(urls), JSON.stringify(durs), watermark !== undefined ? watermark : 1, watermark_url || '', watermark_position || 'top-right', watermark_opacity || 0.8, watermark_size || 120]);
+  run('INSERT INTO custom_channels (name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size, stream_format, show_in_live) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [name, category || '24/7 Channels', description || '', logo_url || '', JSON.stringify(urls), JSON.stringify(durs), watermark !== undefined ? watermark : 1, watermark_url || '', watermark_position || 'top-right', watermark_opacity || 0.8, watermark_size || 120, stream_format || 'm3u8', show_in_live !== undefined ? show_in_live : 1]);
   res.json({ message: 'Custom channel created' });
 });
 
 app.put('/api/admin/custom-channels/:id', (req, res) => {
   if (!requireAdmin(req, res)) return;
-  const { name, category, description, logo_url, video_urls, durations, is_active, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size } = req.body;
-  run('UPDATE custom_channels SET name=?, category=?, description=?, logo_url=?, video_urls=?, durations=?, is_active=?, watermark=?, watermark_url=?, watermark_position=?, watermark_opacity=?, watermark_size=? WHERE id=?', [
+  const { name, category, description, logo_url, video_urls, durations, is_active, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size, stream_format, show_in_live } = req.body;
+  run('UPDATE custom_channels SET name=?, category=?, description=?, logo_url=?, video_urls=?, durations=?, is_active=?, watermark=?, watermark_url=?, watermark_position=?, watermark_opacity=?, watermark_size=?, stream_format=?, show_in_live=? WHERE id=?', [
     name, category || '24/7 Channels', description || '', logo_url || '',
     JSON.stringify(Array.isArray(video_urls) ? video_urls : []),
     JSON.stringify(Array.isArray(durations) ? durations : []),
     is_active !== undefined ? is_active : 1,
     watermark !== undefined ? watermark : 1, watermark_url || '', watermark_position || 'top-right', watermark_opacity || 0.8, watermark_size || 120,
+    stream_format || 'm3u8', show_in_live !== undefined ? show_in_live : 1,
     req.params.id
   ]);
   res.json({ message: 'Custom channel updated' });

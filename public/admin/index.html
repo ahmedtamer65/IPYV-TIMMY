@@ -497,10 +497,16 @@
             <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:6px">Watermark Position</label>
             <select id="branding_watermark_position" class="search-box" style="width:100%;box-sizing:border-box">
               <option value="top-left">Top Left</option>
+              <option value="top-left-corner">Top Left (Corner)</option>
+              <option value="top-center">Top Center</option>
               <option value="top-right">Top Right</option>
-              <option value="bottom-left">Bottom Left</option>
-              <option value="bottom-right" selected>Bottom Right</option>
+              <option value="top-right-corner">Top Right (Corner)</option>
               <option value="center">Center</option>
+              <option value="bottom-left">Bottom Left</option>
+              <option value="bottom-left-corner">Bottom Left (Corner)</option>
+              <option value="bottom-center">Bottom Center</option>
+              <option value="bottom-right" selected>Bottom Right</option>
+              <option value="bottom-right-corner">Bottom Right (Corner)</option>
             </select>
           </div>
         </div>
@@ -781,22 +787,6 @@ async function saveUser(id) {
 let channelFilter = null;
 async function loadChannels() {
   allChannels = await api('/api/admin/channels');
-  // Add custom 24/7 channels to the list
-  try {
-    const custom = await api('/api/admin/custom-channels');
-    custom.forEach(cc => {
-      if (cc.is_active) {
-        allChannels.push({
-          id: 'custom_' + cc.id,
-          name: '🔁 ' + cc.name,
-          category: cc.category || '24/7 Channels',
-          stream_url: '/live/custom/' + cc.id,
-          is_active: 1,
-          _isCustom: true
-        });
-      }
-    });
-  } catch(e) {}
   document.getElementById('chCount').textContent = allChannels.length;
   const cats = [...new Set(allChannels.map(c=>c.category))];
   document.getElementById('channelFilters').innerHTML =
@@ -2117,6 +2107,15 @@ function openCustomChannelModal(channel) {
       <input id="cc_logo" class="search-box" placeholder="https://..." style="width:100%;box-sizing:border-box" value="${channel ? (channel.logo_url||'') : ''}">
     </div>
     <div style="margin-bottom:12px">
+      <label style="color:#5a6a8a;font-size:12px;display:block;margin-bottom:4px">Stream Format</label>
+      <select id="cc_format" class="search-box" style="width:100%;box-sizing:border-box">
+        <option value="m3u8" ${(channel?.stream_format||'m3u8')==='m3u8'?'selected':''}>M3U8 (HLS - recommended)</option>
+        <option value="ts" ${channel?.stream_format==='ts'?'selected':''}>TS (MPEG-TS)</option>
+        <option value="mp4" ${channel?.stream_format==='mp4'?'selected':''}>MP4</option>
+      </select>
+    </div>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer;color:#e0e0e0;font-size:13px"><input type="checkbox" id="cc_show_in_live" ${channel?.show_in_live?'checked':''}> Show in Live Channels list (Smarters/M3U)</label>
+    <div style="margin-bottom:12px">
       <label style="color:#00d4ff;font-size:12px;font-weight:bold;display:block;margin-bottom:4px">Video URLs (one per line) — plays in order, loops forever</label>
       <textarea id="cc_urls" rows="8" style="width:100%;box-sizing:border-box;background:#0a0e1a;border:1px solid #1e2844;border-radius:8px;color:#e0e0e0;font-size:13px;padding:10px;font-family:monospace;resize:vertical" placeholder="https://example.com/movie1.mp4&#10;https://example.com/movie2.mp4&#10;https://example.com/movie3.mp4">${urls.join('\n')}</textarea>
       <div style="font-size:11px;color:#5a6a8a;margin-top:4px">Supports: mp4, mkv, m3u8 links.</div>
@@ -2138,10 +2137,16 @@ function openCustomChannelModal(channel) {
         <div style="flex:1;min-width:120px"><label style="color:#5a6a8a;font-size:11px;display:block;margin-bottom:3px">Position</label>
           <select id="cc_wmpos" class="search-box" style="width:100%;box-sizing:border-box">
             <option value="top-left" ${channel?.watermark_position==='top-left'?'selected':''}>Top Left</option>
+            <option value="top-left-corner" ${channel?.watermark_position==='top-left-corner'?'selected':''}>Top Left (Corner)</option>
+            <option value="top-center" ${channel?.watermark_position==='top-center'?'selected':''}>Top Center</option>
             <option value="top-right" ${(!channel?.watermark_position||channel?.watermark_position==='top-right')?'selected':''}>Top Right</option>
-            <option value="bottom-left" ${channel?.watermark_position==='bottom-left'?'selected':''}>Bottom Left</option>
-            <option value="bottom-right" ${channel?.watermark_position==='bottom-right'?'selected':''}>Bottom Right</option>
+            <option value="top-right-corner" ${channel?.watermark_position==='top-right-corner'?'selected':''}>Top Right (Corner)</option>
             <option value="center" ${channel?.watermark_position==='center'?'selected':''}>Center</option>
+            <option value="bottom-left" ${channel?.watermark_position==='bottom-left'?'selected':''}>Bottom Left</option>
+            <option value="bottom-left-corner" ${channel?.watermark_position==='bottom-left-corner'?'selected':''}>Bottom Left (Corner)</option>
+            <option value="bottom-center" ${channel?.watermark_position==='bottom-center'?'selected':''}>Bottom Center</option>
+            <option value="bottom-right" ${channel?.watermark_position==='bottom-right'?'selected':''}>Bottom Right</option>
+            <option value="bottom-right-corner" ${channel?.watermark_position==='bottom-right-corner'?'selected':''}>Bottom Right (Corner)</option>
           </select>
         </div>
         <div style="flex:1;min-width:120px"><label style="color:#5a6a8a;font-size:11px;display:block;margin-bottom:3px">Opacity: <span id="cc_opval">${channel?.watermark_opacity||0.8}</span></label>
@@ -2189,7 +2194,9 @@ async function saveCustomChannel() {
   const watermark_opacity = parseFloat(document.getElementById('cc_wmopacity').value);
   const watermark_size = parseInt(document.getElementById('cc_wmsize').value) || 120;
 
-  const body = { name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size };
+  const stream_format = document.getElementById('cc_format').value;
+  const show_in_live = document.getElementById('cc_show_in_live').checked ? 1 : 0;
+  const body = { name, category, description, logo_url, video_urls, durations, watermark, watermark_url, watermark_position, watermark_opacity, watermark_size, stream_format, show_in_live };
   if (id) {
     await api('/api/admin/custom-channels/' + id, 'PUT', body);
   } else {

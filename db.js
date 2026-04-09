@@ -396,6 +396,8 @@ async function init() {
   try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark_position TEXT'); } catch(e) {}
   try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark_opacity REAL'); } catch(e) {}
   try { db.run('ALTER TABLE custom_channels ADD COLUMN watermark_size INTEGER'); } catch(e) {}
+  try { db.run("ALTER TABLE custom_channels ADD COLUMN stream_format TEXT DEFAULT 'm3u8'"); } catch(e) {}
+  try { db.run('ALTER TABLE custom_channels ADD COLUMN show_in_live INTEGER DEFAULT 1'); } catch(e) {}
 
   // === SEED DATA ===
 
